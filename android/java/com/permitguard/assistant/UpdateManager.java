@@ -49,12 +49,19 @@ public class UpdateManager {
             "workbuddy.host"
     };
 
-    private static final int CONNECT_TIMEOUT = 15000;
-    private static final int READ_TIMEOUT = 60000;
+    private static final int CONNECT_TIMEOUT = 8000;
+    // 单次读取间隔超时（不是总时长）；下载也用这个值，20s 对 200 KB 的包足够
+    private static final int READ_TIMEOUT = 20000;
     private static final long MAX_ZIP = 32L * 1024 * 1024;
     private static final long MAX_APK = 128L * 1024 * 1024;
 
     private final MainActivity host;
+
+    /** 异步网络的在途/已完成结果，key 为任务号；空串表示还在跑 */
+    private final java.util.concurrent.ConcurrentHashMap<String, String> netJobs =
+            new java.util.concurrent.ConcurrentHashMap<String, String>();
+    private final java.util.concurrent.atomic.AtomicInteger netSeq =
+            new java.util.concurrent.atomic.AtomicInteger();
     private final File webDir;      // filesDir/web
     private final File apkDir;      // cacheDir/apk
 
@@ -135,13 +142,71 @@ public class UpdateManager {
     /* ============================================================ 网络 */
 
     /**
-     * 同步 GET 文本（清单文件很小，直接同步返回，省得 JS 再轮询）。
-     * 失败返回 "__ERR__:原因"，由 JS 侧换下一个源。
+     * 同步 GET 文本。**只剩兼容用途**：老版本网页包（热更新目录里的旧 index.html）
+     * 只会调这个方法。同步调用会冻结 JS 线程直到网络返回，慢网下整页假死，
+     * 所以新网页一律用 httpGetStart + httpGetTake。
      */
     @JavascriptInterface
     public String httpGet(String url) {
         if (!host.localPage()) return "__ERR__:仅限应用内页面调用";
         if (!allowed(url)) return "__ERR__:地址不在白名单";
+        return httpGetBlocking(url);
+    }
+
+    /**
+     * 异步取文本：立刻返回任务号，请求在后台线程跑，JS 侧轮询 httpGetTake。
+     *
+     * 为什么要拆两步：@JavascriptInterface 的方法是在 WebView 的 JS 线程上同步执行的，
+     * 内部做网络 IO 就会把整个页面卡住——渲染、点击、动画全部停摆。实测点「检查更新」
+     * 时四个源依次超时，界面最长能僵死几分钟且不给任何反馈，用户只能杀进程。
+     */
+    @JavascriptInterface
+    public String httpGetStart(String url) {
+        if (!host.localPage()) return "__ERR__:仅限应用内页面调用";
+        if (!allowed(url)) return "__ERR__:地址不在白名单";
+        final String token = "n" + netSeq.incrementAndGet();
+        netJobs.put(token, "");
+        final String target = url;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String r;
+                try {
+                    r = httpGetBlocking(target);
+                } catch (Exception e) {
+                    r = "__ERR__:" + shortErr(e);
+                }
+                netJobs.put(token, (r == null || r.length() == 0) ? "__ERR__:空响应" : r);
+                trimNetJobs();
+            }
+        }, "upd-get").start();
+        return token;
+    }
+
+    /**
+     * 取异步任务结果：{"done":false} 表示还没回来；{"done":true,"text":"..."} 表示完成。
+     * 取走即删除，避免结果在内存里堆积。
+     */
+    @JavascriptInterface
+    public String httpGetTake(String token) {
+        if (!host.localPage()) return "{\"done\":true,\"text\":\"__ERR__:仅限应用内页面调用\"}";
+        String r = (token == null) ? null : netJobs.get(token);
+        if (r == null) return "{\"done\":true,\"text\":\"__ERR__:任务不存在或已过期\"}";
+        if (r.length() == 0) return "{\"done\":false}";
+        netJobs.remove(token);
+        return "{\"done\":true,\"text\":" + json(r) + "}";
+    }
+
+    /** 页面若中途放弃轮询，完成的旧结果就没人取了；超过 40 条时清理已完成的 */
+    private void trimNetJobs() {
+        if (netJobs.size() <= 40) return;
+        for (java.util.Iterator<java.util.Map.Entry<String, String>> it = netJobs.entrySet().iterator();
+             it.hasNext() && netJobs.size() > 20; ) {
+            if (it.next().getValue().length() > 0) it.remove();
+        }
+    }
+
+    private String httpGetBlocking(String url) {
         HttpURLConnection c = null;
         try {
             c = open(url);

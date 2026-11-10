@@ -124,6 +124,38 @@ def zip_web(ver):
     return dst, count
 
 
+def prune(keep=2):
+    """删掉过旧的网页包与安装包，只留最近 keep 个版本。
+
+    旧包留着没有任何用处（App 只会下清单里写的那一版），但会让仓库一直变大。
+    """
+    ver = app_version()
+    for sub, pat in (('web', r'www-(\d+(?:\.\d+)?)\.zip'),
+                     ('apk', r'permit-guard-(\d+(?:\.\d+)?)\.apk')):
+        d = os.path.join(OUT, sub)
+        if not os.path.isdir(d):
+            continue
+        items = []
+        for name in os.listdir(d):
+            m = re.match(pat, name)
+            if m:
+                items.append((m.group(1), os.path.join(d, name)))
+        items.sort(key=lambda x: [int(n) for n in x[0].split('.')])
+
+        def code(v):
+            parts = [int(n) for n in v.split('.')]
+            return parts[0] * 100 + (parts[1] if len(parts) > 1 else 0)
+
+        alive = [x for x in items if code(x[0]) >= code(ver) - 1]   # 当前版 + 上一版
+        for v, path in items:
+            if (v, path) not in alive:
+                try:
+                    os.remove(path)
+                    print('  清理旧产物：%s/%s' % (sub, os.path.basename(path)))
+                except Exception as e:
+                    print('  清理失败 %s：%s' % (path, e))
+
+
 def copy_apk(ver):
     src = os.path.join(PROJ, 'android', 'build', 'permit-guard-%s.apk' % ver)
     if not os.path.isfile(src):
@@ -224,8 +256,11 @@ def main():
     ap.add_argument('--notes', default='', help='更新说明，会显示在 App 更新页')
     ap.add_argument('--web-only', action='store_true', help='只发网页热更新')
     ap.add_argument('--apk-only', action='store_true', help='只发安装包')
-    ap.add_argument('--push', action='store_true', help='生成后提交并推送')
+    ap.add_argument('--no-push', dest='push', action='store_false',
+                    help='只生成产物，不提交推送（默认会推送）')
+    ap.add_argument('--push', dest='push', action='store_true', help='（默认行为，留作兼容）')
     ap.add_argument('--remote', help='git 远程地址（默认按 --repo 拼 GitHub 地址）')
+    ap.set_defaults(push=True)
     args = ap.parse_args()
 
     ver = app_version()

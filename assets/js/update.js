@@ -44,7 +44,9 @@
   }
 
   function hasNative() {
-    return !!bridge && typeof bridge.info === 'function' && typeof bridge.httpGet === 'function';
+    if (!bridge || typeof bridge.info !== 'function') return false;
+    if (typeof bridge.httpGet === 'function') return true;   // 老安装包
+    return typeof bridge.httpGetStart === 'function' && typeof bridge.httpGetTake === 'function';
   }
 
   function readInfo() {
@@ -151,16 +153,56 @@
     }
   }
 
-  function fetchJson(url, cb) {
-    if (hasNative()) {
-      var txt = '';
-      try { txt = bridge.httpGet(url); } catch (err) { txt = '__ERR__:' + err; }
-      if (txt && txt.indexOf('__ERR__') === 0) { cb(txt.slice(7)); return; }
+  /**
+   * 原生异步取文本：启动请求 + 轮询结果，两段都用同步 JS 接口，
+   * 但每段都是"立即返回"，不会像 httpGet 那样把页面卡到网络返回为止。
+   */
+  function nativeGet(url, timeoutMs, cb) {
+    var canAsync = typeof bridge.httpGetStart === 'function' && typeof bridge.httpGetTake === 'function';
+    if (!canAsync) {
+      // 老安装包只有同步接口：至少让出一帧，别在绘制前就阻塞
+      setTimeout(function () {
+        var txt = '';
+        try { txt = bridge.httpGet(url); } catch (err) { txt = '__ERR__:' + err; }
+        if (txt && txt.indexOf('__ERR__') === 0) { cb(txt.slice(7)); return; }
+        cb(null, txt);
+      }, 0);
+      return;
+    }
+
+    var token = '';
+    try { token = bridge.httpGetStart(url); } catch (err) { cb(String(err)); return; }
+    if (!token || token.indexOf('__ERR__') === 0) { cb(token ? token.slice(7) : '启动请求失败'); return; }
+
+    var started = Date.now();
+    var timer = setInterval(function () {
+      var done = false, text = '', fail = '';
       try {
-        cb(null, JSON.parse(txt));
-      } catch (err) {
-        cb('返回内容不是有效 JSON');
-      }
+        var r = JSON.parse(bridge.httpGetTake(token) || '{}');
+        done = !!r.done;
+        text = r.text || '';
+      } catch (err) { done = true; fail = '读取结果失败'; }
+
+      if (!done && Date.now() - started > timeoutMs) { done = true; fail = '请求超时'; }
+      if (!done) return;
+
+      clearInterval(timer);
+      if (fail) { cb(fail); return; }
+      if (text && text.indexOf('__ERR__') === 0) { cb(text.slice(7)); return; }
+      cb(null, text);
+    }, 120);
+  }
+
+  function fetchJson(url, cb, timeoutMs) {
+    if (hasNative()) {
+      nativeGet(url, timeoutMs || 15000, function (err, txt) {
+        if (err) { cb(err); return; }
+        try {
+          cb(null, JSON.parse(txt));
+        } catch (e2) {
+          cb('返回内容不是有效 JSON');
+        }
+      });
       return;
     }
     if (typeof fetch !== 'function') { cb('当前环境不支持网络请求'); return; }
@@ -175,26 +217,31 @@
   }
 
   /** 依次尝试各个源，第一个成功的胜出；回调里的 base 一定是可下载的地址 */
-  function fetchManifest(list, idx, cb) {
+  /** 每个请求的时间片：总预算 20 秒摊到各个源，慢网下也能给出明确结论 */
+  function fetchManifest(list, idx, deadline, cb) {
     if (idx >= list.length) { cb('所有更新源都连不上'); return; }
+    var left = deadline - Date.now();
+    if (left < 2500) { cb('网络太慢，检查超时'); return; }
+
     var item = list[idx];
     var dl = item.dl || item.base;
+    var slice = Math.min(left, 10000);
 
     if (item.kind === 'api') {
       fetchJson(item.base + '/contents/' + MANIFEST + '?ref=main&t=' + Date.now(), function (err, data) {
-        if (err || !data || !data.content) { fetchManifest(list, idx + 1, cb); return; }
+        if (err || !data || !data.content) { fetchManifest(list, idx + 1, deadline, cb); return; }
         var obj = null;
         try { obj = JSON.parse(b64utf8(data.content)); } catch (e2) { obj = null; }
         if (obj && obj.web) { cb(null, obj, dl); return; }
-        fetchManifest(list, idx + 1, cb);
-      });
+        fetchManifest(list, idx + 1, deadline, cb);
+      }, slice);
       return;
     }
 
     fetchJson(bust(item.base + MANIFEST), function (err, data) {
       if (!err && data && data.web) { cb(null, data, dl); return; }
-      fetchManifest(list, idx + 1, cb);
-    });
+      fetchManifest(list, idx + 1, deadline, cb);
+    }, slice);
   }
 
   /** 把清单里的相对路径补成完整地址（跟随本次成功的源）
@@ -295,7 +342,12 @@
       if (cb) cb();
     }
 
-    fetchManifest(list, 0, function (err, data, base) {
+    // 关键：render 之后必须让出主线程，浏览器才有机会把这帧画出来。
+    // 之前是 render 紧接着同步发网络请求，用户点完按钮看到的还是旧界面，
+    // 表现就是"点了没反应、整页卡死"。
+    var deadline = Date.now() + 20000;
+    setTimeout(function () {
+    fetchManifest(list, 0, deadline, function (err, data, base) {
       if (err) { done(err); return; }
       state.base = base;
       var found = evaluate(data);
@@ -306,7 +358,7 @@
       if (!found && base.indexOf('api.github.com') < 0) {
         var again = apiSources();
         if (again.length) {
-          fetchManifest(again, 0, function (e2, d2, b2) {
+          fetchManifest(again, 0, deadline, function (e2, d2, b2) {
             if (!e2 && d2 && evaluate(d2)) { done(null, d2, b2); return; }
             done(null, data, base);
           });
@@ -315,6 +367,7 @@
       }
       done(null, data, base);
     });
+    }, 20);
   }
 
   /** 启动时静默检查：有原生桥、距上次超过 6 小时才查，失败不打扰 */

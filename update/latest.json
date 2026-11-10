@@ -1,22 +1,22 @@
 {
   "schema": 1,
-  "generated": "2026-11-10T09:45:02Z",
-  "notes": "在线更新可用：网页热更新优先、安装包升级备用；修正下载地址拼接，清单走无缓存通道",
+  "generated": "2026-11-10T13:02:00Z",
+  "notes": "修好「检查更新」卡死：网络请求改为后台线程 + 轮询，界面不再冻结，超时给明确提示",
   "web": {
-    "version": "3.5",
-    "code": 305,
+    "version": "3.6",
+    "code": 306,
     "minApk": 0,
-    "size": 128552,
-    "sha256": "afcd45b37da049406482d6201283007637cfd56f004e6787aa320e94005acba5",
-    "path": "update/web/www-3.5.zip",
-    "notes": "在线更新可用：网页热更新优先、安装包升级备用；修正下载地址拼接，清单走无缓存通道"
+    "size": 129362,
+    "sha256": "938177e11851c63ee90c0ed84569bee1ffcf86d7dd7f17cdaf45d538b8f899f6",
+    "path": "update/web/www-3.6.zip",
+    "notes": "修好「检查更新」卡死：网络请求改为后台线程 + 轮询，界面不再冻结，超时给明确提示"
   },
   "apk": {
-    "versionName": "3.5",
-    "versionCode": 26,
-    "size": 194429,
-    "sha256": "d17cbf45b7f9ec985cad4ff25d895e873b7d9d7340c78a0f2c14d969bd73f80b",
-    "path": "update/apk/permit-guard-3.5.apk",
-    "notes": "在线更新可用：网页热更新优先、安装包升级备用；修正下载地址拼接，清单走无缓存通道"
+    "versionName": "3.6",
+    "versionCode": 27,
+    "size": 198525,
+    "sha256": "cc57d0cefca2688fac789c4ff1a75e35ca1be3a5431c2aa99e0dfe0581cfb416",
+    "path": "update/apk/permit-guard-3.6.apk",
+    "notes": "修好「检查更新」卡死：网络请求改为后台线程 + 轮询，界面不再冻结，超时给明确提示"
   }
 }
