@@ -38,7 +38,8 @@
     diag: [],       // 各源连通性测试结果
     diagBusy: false,
     editingBase: false,
-    baseInput: ''
+    baseInput: '',
+    notesTab: 'app' // 更新说明当前看哪块：app（应用）/ rule（规则）
   };
 
   /* -------------------------------------------------------- 小工具 */
@@ -785,15 +786,15 @@
     }).join('') + '</ul>';
   }
 
-  /** 应用更新说明：只讲 App 自己变了什么 */
-  function appNotesBlock() {
+  /** 应用更新说明的内容：只讲 App 自己变了什么 */
+  function appNotesBody() {
     var list = (typeof APP_NOTES === 'undefined' || !APP_NOTES) ? [] : APP_NOTES.slice();
     if (!list.length) return '';
     list.sort(function (a, b) {
       return a.ver < b.ver ? 1 : (a.ver > b.ver ? -1 : 0);
     });
 
-    var rows = list.map(function (n) {
+    return list.map(function (n) {
       return '<div class="upd-card">'
         + '<div class="upd-card-h"><div class="upd-card-t">v' + e(n.ver) + '</div>'
         + '<div class="upd-badge">' + e(noteDate(n.date)) + '</div></div>'
@@ -801,11 +802,6 @@
         + bulletList(n.items)
         + '</div>';
     }).join('');
-
-    return '<div class="sec">'
-      + '<div class="sec-head"><div class="sec-title">应用更新说明</div>'
-      + '<div class="sec-desc">界面 / 性能 / 修 BUG</div></div>'
-      + rows + '</div>';
   }
 
   /** 规则更新说明：公司规定更正 + 从通报里学到的 */
@@ -835,7 +831,8 @@
       + '</div></div>';
   }
 
-  function ruleNotesBlock() {
+  /** 规则更新说明的内容：公司规定更正 + 从通报里学到的 */
+  function ruleNotesBody() {
     var list = (typeof RULE_UPDATES === 'undefined' || !RULE_UPDATES) ? [] : RULE_UPDATES.slice();
     if (!list.length) return '';
     list.sort(function (a, b) {
@@ -850,7 +847,7 @@
       else groups.push({ date: list[i].date, list: [list[i]] });
     }
 
-    var body = groups.map(function (grp) {
+    return groups.map(function (grp) {
       var d = noteDateFull(grp.date);
       return '<div style="margin-bottom:20px">'
         + '<div class="tl-date"><b>' + e(d.main) + '</b><span>' + e(d.sub) + '</span>'
@@ -858,10 +855,41 @@
         + '<div class="tl-flow">' + grp.list.map(ruleCard).join('') + '</div>'
         + '</div>';
     }).join('');
+  }
+
+  /* 两块说明用分段控件左右切换，和票种详情页的「概览 / 填写要点」一个做法 */
+  function setNotesTab(k) {
+    if (state.notesTab === k) return;
+    state.notesTab = k;
+    if (typeof render === 'function') render(true);
+  }
+
+  function notesBlock() {
+    var n = {
+      app: (typeof APP_NOTES !== 'undefined' && APP_NOTES) ? APP_NOTES.length : 0,
+      rule: (typeof RULE_UPDATES !== 'undefined' && RULE_UPDATES) ? RULE_UPDATES.length : 0
+    };
+    if (!n.app && !n.rule) return '';
+    var cur = state.notesTab === 'rule' ? 'rule' : 'app';
+
+    var tabs = [
+      { k: 'app', label: '应用更新说明' },
+      { k: 'rule', label: '规则更新说明' }
+    ].map(function (t) {
+      if (!n[t.k]) return '';
+      return '<button class="seg-btn ' + (cur === t.k ? 'active' : '') + '"'
+        + ' onclick="UPD.setNotesTab(\'' + t.k + '\')">' + e(t.label)
+        + '<i class="seg-n">' + n[t.k] + '</i></button>';
+    }).join('');
+
+    var body = cur === 'rule' ? ruleNotesBody() : appNotesBody();
+    var desc = cur === 'rule'
+      ? '公司规定更正 · 通报里学到的经验'
+      : '界面 · 性能 · 问题修复';
 
     return '<div class="sec">'
-      + '<div class="sec-head"><div class="sec-title">规则更新说明</div>'
-      + '<div class="sec-desc">' + list.length + ' 次改动</div></div>'
+      + '<div class="segmented block">' + tabs + '</div>'
+      + '<div class="upd-tab-desc">' + desc + '</div>'
       + body + '</div>';
   }
 
@@ -939,8 +967,7 @@
       + head
       + (body ? '<div class="sec">' + body + '</div>' : '')
       + (secondary ? '<div class="sec">' + secondary + '</div>' : '')
-      + appNotesBlock()
-      + ruleNotesBlock()
+      + notesBlock()
       + '<div class="sec">'
       + '<div class="sec-head"><div class="sec-title">更新设置</div></div>'
       + '<div class="row-list">'
@@ -991,6 +1018,7 @@
     rollback: rollback,
     busy: busy,
     view: view,
+    setNotesTab: setNotesTab,
     homeBar: homeBar,
     setBase: function (u) { try { Store.set(K_BASE, String(u || '')); } catch (err) { /* ignore */ } },
     diag: diag,
