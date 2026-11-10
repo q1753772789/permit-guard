@@ -40,11 +40,23 @@ import java.util.zip.ZipInputStream;
  */
 public class UpdateManager {
 
-    /** 只允许从这些域名拉更新包（含子域） */
+    /**
+     * 只允许从这些域名拉更新包（含子域）。
+     *
+     * 国内手机直连 GitHub 基本不通（raw / api.github.com / *.github.io 全在内），
+     * 所以放行了几个公开的 GitHub 反代（把原始 GitHub 地址原样拼在域名后面）。
+     * 反代只看到公开仓库的内容，且每个包都要过 size + sha256 校验，改不了包；
+     * 清单本身另有签名校验（见 checkManifestSig），改清单也换不了包。
+     */
     private static final String[] ALLOW_HOSTS = {
             "github.com",
             "githubusercontent.com",
             "jsdelivr.net",
+            "gh-proxy.com",
+            "ghfast.top",
+            "gh.llkk.cc",
+            "ghproxy.net",
+            "gitmirror.com",
             "permit-guard.app.workbuddy.host",
             "workbuddy.host"
     };

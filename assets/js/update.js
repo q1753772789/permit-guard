@@ -19,6 +19,7 @@
   var K_LAST = 'tz_upd_last';      // 上次检查时间（毫秒）
   var K_AUTO = 'tz_upd_auto';      // 是否自动检查
   var K_BASE = 'tz_upd_base';      // 自定义更新源（企业内网镜像时用）
+  var K_GOOD = 'tz_upd_good';      // 上次连通的那个源，下次优先试它
 
   var bridge = (typeof window !== 'undefined') ? window.NativeUpdater : null;
   var pollTimer = null;
@@ -32,7 +33,12 @@
     web: null,      // 可用的网页更新
     apk: null,      // 可用的安装包更新
     task: null,     // 正在进行/刚结束的任务
-    base: ''        // 本次成功拉取清单的源
+    base: '',       // 本次成功拉取清单的源
+    tag: '',        // 本次成功的源叫什么（gh-proxy / jsDelivr ...）
+    diag: [],       // 各源连通性测试结果
+    diagBusy: false,
+    editingBase: false,
+    baseInput: ''
   };
 
   /* -------------------------------------------------------- 小工具 */
@@ -107,30 +113,49 @@
 
   /* -------------------------------------------------------- 清单获取 */
 
+  /**
+   * 候选源，按"国内手机能不能连上"排序。
+   *
+   * GitHub 的 raw / api / *.github.io 在国内手机上是连不上的，所以主力是两类：
+   *   1) 公开反代：把原始 GitHub 地址原样拼在域名后面（gh-proxy.com/https://raw...）
+   *   2) jsDelivr 的几个 CDN 节点：正规 CDN，国内有节点，但对 @main 有最长 12 小时缓存
+   * 直连源放最后，给挂梯子或海外的用户。
+   */
   function bases() {
     var list = [];
     var custom = '';
-    try { custom = Store.get(K_BASE) || ''; } catch (err) { custom = ''; }
+    try { custom = String(Store.get(K_BASE) || '').trim(); } catch (err) { custom = ''; }
     if (custom) {
-      var c = String(custom).replace(/\/+$/, '') + '/';
-      list.push({ base: c, dl: c });
+      if (!/^https:\/\//i.test(custom)) custom = 'https://' + custom.replace(/^\/+/, '');
+      var c = custom.replace(/\/+$/, '') + '/';
+      list.push({ tag: '自定义', base: c, dl: c });
     }
 
-    if (REPO && REPO.indexOf('@@') < 0 && REPO.indexOf('/') > 0) {
-      var owner = REPO.split('/')[0];
-      var repo = REPO.split('/')[1];
-      var raw = 'https://raw.githubusercontent.com/' + REPO + '/main/';
-      var jd = 'https://cdn.jsdelivr.net/gh/' + REPO + '@main/';
-      var io = 'https://' + owner + '.github.io/' + repo + '/';
+    if (!(REPO && REPO.indexOf('@@') < 0 && REPO.indexOf('/') > 0)) return list;
 
-      list.push({ base: raw, dl: raw });
-      // GitHub 内容接口：绕开 CDN 缓存，清单永远是最新的那份。
-      // 公开仓库可匿名读（限流 60 次/小时/IP），够一次检查用；超限会自动落到下一源。
-      list.push({ base: 'https://api.github.com/repos/' + REPO, dl: raw, kind: 'api' });
-      // jsDelivr 国内快，但对 main 分支有最长 12 小时缓存，只当兜底
-      list.push({ base: jd, dl: jd });
-      list.push({ base: io, dl: io });
-    }
+    var owner = REPO.split('/')[0];
+    var repo = REPO.split('/')[1];
+    var raw = 'https://raw.githubusercontent.com/' + REPO + '/main/';
+    var jd = 'https://cdn.jsdelivr.net/gh/' + REPO + '@main/';
+
+    // 反代组：国内实测可用，把原始地址整段拼在后面。
+    // 反代直连 raw，不缓存，清单永远是当前的，所以排最前。
+    list.push({ tag: 'gh-proxy', base: 'https://gh-proxy.com/' + raw, dl: 'https://gh-proxy.com/' + raw });
+    list.push({ tag: 'ghfast', base: 'https://ghfast.top/' + raw, dl: 'https://ghfast.top/' + raw });
+    list.push({ tag: 'llkk', base: 'https://gh.llkk.cc/' + raw, dl: 'https://gh.llkk.cc/' + raw });
+
+    // jsDelivr 组：不同边缘节点缓存差异极大——实测 cdn 主节点可能拿到两天前的清单，
+    // fastly / gcore 反而是最新的。所以主节点放最后，且这几个源拿到清单后一律用 API 核对。
+    list.push({ tag: 'jsDelivr-fastly', base: 'https://fastly.jsdelivr.net/gh/' + REPO + '@main/', dl: 'https://fastly.jsdelivr.net/gh/' + REPO + '@main/', cached: true });
+    list.push({ tag: 'jsDelivr-gcore', base: 'https://gcore.jsdelivr.net/gh/' + REPO + '@main/', dl: 'https://gcore.jsdelivr.net/gh/' + REPO + '@main/', cached: true });
+    list.push({ tag: 'jsDelivr', base: jd, dl: jd, cached: true });
+
+    // 直连组：国内基本不通，海外/挂代理时最快
+    list.push({ tag: 'GitHub 直连', base: raw, dl: raw });
+    // 内容接口无 CDN 缓存，用来复核"是不是真的没有更新"
+    list.push({ tag: 'GitHub API', base: 'https://api.github.com/repos/' + REPO, dl: raw, kind: 'api' });
+    list.push({ tag: 'GitHub Pages', base: 'https://' + owner + '.github.io/' + repo + '/', dl: 'https://' + owner + '.github.io/' + repo + '/' });
+
     return list;
   }
 
@@ -216,32 +241,103 @@
     });
   }
 
-  /** 依次尝试各个源，第一个成功的胜出；回调里的 base 一定是可下载的地址 */
-  /** 每个请求的时间片：总预算 20 秒摊到各个源，慢网下也能给出明确结论 */
-  function fetchManifest(list, idx, deadline, cb) {
-    if (idx >= list.length) { cb('所有更新源都连不上'); return; }
-    var left = deadline - Date.now();
-    if (left < 2500) { cb('网络太慢，检查超时'); return; }
-
-    var item = list[idx];
+  /** 单源取清单；回调里的 base 是可下载的地址 */
+  function fetchOne(item, timeoutMs, cb) {
     var dl = item.dl || item.base;
-    var slice = Math.min(left, 10000);
 
     if (item.kind === 'api') {
       fetchJson(item.base + '/contents/' + MANIFEST + '?ref=main&t=' + Date.now(), function (err, data) {
-        if (err || !data || !data.content) { fetchManifest(list, idx + 1, deadline, cb); return; }
+        if (err || !data || !data.content) { cb(err || '无内容'); return; }
         var obj = null;
         try { obj = JSON.parse(b64utf8(data.content)); } catch (e2) { obj = null; }
-        if (obj && obj.web) { cb(null, obj, dl); return; }
-        fetchManifest(list, idx + 1, deadline, cb);
-      }, slice);
+        if (!obj || !obj.web) { cb('清单格式不对'); return; }
+        cb(null, obj, dl);
+      }, timeoutMs);
       return;
     }
 
     fetchJson(bust(item.base + MANIFEST), function (err, data) {
-      if (!err && data && data.web) { cb(null, data, dl); return; }
-      fetchManifest(list, idx + 1, deadline, cb);
-    }, slice);
+      if (err) { cb(err); return; }
+      if (!data || !data.web) { cb('清单格式不对'); return; }
+      cb(null, data, dl);
+    }, timeoutMs);
+  }
+
+  /**
+   * 一组源同时请求，最快成功的胜出。
+   *
+   * 串行试 6 个源、每个等 6 秒，最坏要 30 秒以上——用户早以为死机了。
+   * 并发之后最坏只等一个超时（约 6 秒），而且慢的源不拖累快的。
+   */
+  function raceOne(items, timeoutMs, cb) {
+    if (!items.length) { cb('无可用源'); return; }
+    var settled = false;
+    var left = items.length;
+    var lastErr = '';
+
+    for (var i = 0; i < items.length; i++) {
+      (function (it) {
+        fetchOne(it, timeoutMs, function (err, data, dl) {
+          left--;
+          if (settled) return;
+          if (!err && data) {
+            settled = true;
+            state.tag = it.tag;
+            cb(null, data, dl, it);
+            return;
+          }
+          lastErr = err || '失败';
+          if (left <= 0) cb(lastErr);
+        });
+      })(items[i]);
+    }
+  }
+
+  /**
+   * 取清单，两批就够：
+   *   1) 上次通的那个源单独试一下（能用就只发一个请求，最省事）
+   *   2) 国内通道整批并发：自定义 + 反代 + jsDelivr，谁先回用谁
+   *   3) 直连 GitHub 兜底（挂梯子/海外才可能通）
+   *
+   * 以前是分三四组串行试，全都不通时要等 26 秒；国内通道合成一批后最坏 14 秒。
+   */
+  function fetchManifest(deadline, cb) {
+    var all = bases();
+    if (!all.length) { cb('还没有配置更新源'); return; }
+
+    var good = '';
+    try { good = String(Store.get(K_GOOD) || ''); } catch (e0) { good = ''; }
+
+    var fast = [];     // 国内通道
+    var slow = [];     // 直连 GitHub
+    var first = null;
+
+    for (var i = 0; i < all.length; i++) {
+      var it = all[i];
+      if (good && it.tag === good && !first) { first = it; continue; }
+      if (it.kind === 'api' || it.tag === 'GitHub 直连' || it.tag === 'GitHub Pages') slow.push(it);
+      else fast.push(it);
+    }
+
+    var groups = [];
+    if (first) groups.push({ list: [first], tmo: 4500 });
+    if (fast.length) groups.push({ list: fast, tmo: 6000 });
+    if (slow.length) groups.push({ list: slow, tmo: 4000 });
+
+    var idx = 0;
+    function next() {
+      if (idx >= groups.length) { cb('所有更新源都连不上'); return; }
+      var left = deadline - Date.now();
+      if (left < 2500) { cb('网络太慢，检查超时'); return; }
+
+      var g = groups[idx++];
+      raceOne(g.list, Math.min(left, g.tmo), function (err, data, dl, item) {
+        if (err || !data) { next(); return; }
+        try { Store.set(K_GOOD, item.tag); } catch (e1) { /* ignore */ }
+        cb(null, data, dl, item);
+      });
+    }
+    next();
   }
 
   /** 把清单里的相对路径补成完整地址（跟随本次成功的源）
@@ -313,6 +409,7 @@
     }
     state.checking = true;
     state.error = '';
+    state.tag = '';      // 别把上一次的源带进来，否则"要不要复核"会判断错
     if (typeof render === 'function' && location.hash === '#/update') render(true);
     if (typeof UPD.onChange === 'function') UPD.onChange();
 
@@ -336,6 +433,7 @@
       } else {
         state.manifest = data;
         state.base = base;
+        evaluate(data);   // 统一在这里算：复核换成 API 那份清单后，结论要跟着变
       }
       if (typeof render === 'function' && location.hash === '#/update') render(true);
       if (typeof UPD.onChange === 'function') UPD.onChange();
@@ -345,29 +443,94 @@
     // 关键：render 之后必须让出主线程，浏览器才有机会把这帧画出来。
     // 之前是 render 紧接着同步发网络请求，用户点完按钮看到的还是旧界面，
     // 表现就是"点了没反应、整页卡死"。
-    var deadline = Date.now() + 20000;
+    var deadline = Date.now() + 18000;
     setTimeout(function () {
-    fetchManifest(list, 0, deadline, function (err, data, base) {
-      if (err) { done(err); return; }
-      state.base = base;
-      var found = evaluate(data);
+      fetchManifest(deadline, function (err, data, base) {
+        if (err) { done(err); return; }
+        state.base = base;
+        var found = evaluate(data);
 
-      // raw / jsDelivr 都有缓存，刚发布的版本可能读到的还是上一版。
-      // 只要这份清单说"没有更新"，就用不经过 CDN 的 API 源再核实一次；
-      // 正常有更新的情况不会多发请求，省配额也不拖慢速度。
-      if (!found && base.indexOf('api.github.com') < 0) {
-        var again = apiSources();
-        if (again.length) {
-          fetchManifest(again, 0, deadline, function (e2, d2, b2) {
-            if (!e2 && d2 && evaluate(d2)) { done(null, d2, b2); return; }
-            done(null, data, base);
-          });
-          return;
+        // 需要复核的两种情况：
+        //   1) 说"没有更新"——可能是缓存在作祟，漏了新版本（假阴性）；
+        //   2) 用的是 jsDelivr 这类会缓存的源——实测主节点能返回两天前的清单，
+        //      照着它"更新"等于把人送回旧版本（假阳性）。
+        // 反代是直连 raw 的、不缓存，有更新时就直接信它，不多发请求。
+        var cachedSrc = !!state.tag && /jsdelivr|Pages/i.test(state.tag);
+        if ((!found || cachedSrc) && base.indexOf('api.github.com') < 0) {
+          var again = apiSources();
+          if (again.length) {
+            raceOne(again, Math.min(Math.max(deadline - Date.now(), 3000), 8000), function (e2, d2, b2) {
+              // API 不走 CDN，它的清单是准的：能拿到就以它为准
+              if (!e2 && d2 && d2.web) {
+                done(null, d2, b2);
+                return;
+              }
+              done(null, data, base);
+            });
+            return;
+          }
         }
-      }
-      done(null, data, base);
-    });
+        done(null, data, base);
+      });
     }, 20);
+  }
+
+  /** 逐个测速：给"为什么连不上"一个看得见的答案 */
+  function diag() {
+    if (state.diagBusy) return;
+    var all = bases();
+    if (!all.length) return;
+
+    state.diagBusy = true;
+    state.diag = [];
+    for (var i = 0; i < all.length; i++) {
+      state.diag.push({ tag: all[i].tag, state: 'wait', ms: 0, err: '' });
+    }
+    if (typeof render === 'function' && location.hash === '#/update') render(true);
+
+    var idx = 0;
+    function step() {
+      if (idx >= all.length) {
+        state.diagBusy = false;
+        if (typeof render === 'function' && location.hash === '#/update') render(true);
+        return;
+      }
+      var n = idx++;
+      var t0 = Date.now();
+      fetchOne(all[n], 8000, function (err) {
+        state.diag[n].state = err ? 'fail' : 'ok';
+        state.diag[n].ms = Date.now() - t0;
+        state.diag[n].err = err || '';
+        if (typeof render === 'function' && location.hash === '#/update') render(true);
+        step();
+      });
+    }
+    step();
+  }
+
+  function editBase() {
+    state.editingBase = !state.editingBase;
+    if (state.editingBase) {
+      try { state.baseInput = String(Store.get(K_BASE) || ''); } catch (e) { state.baseInput = ''; }
+    }
+    if (typeof render === 'function') render(true);
+  }
+
+  function typeBase(v) {
+    state.baseInput = v;       // 只存值，不重绘，否则输入框会失焦
+  }
+
+  function saveBase() {
+    var v = String(state.baseInput || '').trim();
+    try {
+      Store.set(K_BASE, v);
+      Store.remove(K_GOOD);    // 换了源，之前那个"可用源"的记录作废
+    } catch (e) { /* ignore */ }
+    state.editingBase = false;
+    state.base = '';
+    state.tag = '';
+    state.diag = [];
+    if (typeof render === 'function') render(true);
   }
 
   /** 启动时静默检查：有原生桥、距上次超过 6 小时才查，失败不打扰 */
@@ -528,6 +691,58 @@
       + '</div>';
   }
 
+  /** 更新源那一行的说明文字 */
+  function srcDesc() {
+    if (state.base) return (state.tag ? state.tag + ' · ' : '') + state.base;
+
+    var custom = '';
+    try { custom = String(Store.get(K_BASE) || '').trim(); } catch (e) { custom = ''; }
+    if (custom) return '自定义：' + custom;
+
+    var n = bases().length;
+    return '自动选择（' + n + ' 个候选，优先国内通道）';
+  }
+
+  function baseEditor() {
+    return '<div class="upd-edit">'
+      + '<input class="upd-input" type="url" inputmode="url" spellcheck="false"'
+      + ' placeholder="https://你的镜像地址/"'
+      + ' value="' + e(state.baseInput || '') + '"'
+      + ' oninput="UPD.typeBase(this.value)">'
+      + '<div class="upd-edit-d">填到能取到 <b>latest.json</b> 的那一层（一般是 <code>…/update/</code>）。'
+      + '留空 = 用内置的国内通道自动选。公司内网镜像、自建反向代理都填这里。</div>'
+      + '<div class="upd-edit-btns">'
+      + '<button class="btn ghost" onclick="UPD.editBase()">取消</button>'
+      + '<button class="btn primary" onclick="UPD.saveBase()">保存</button>'
+      + '</div></div>';
+  }
+
+  /** 网络诊断：把每个通道的连通性和耗时列出来 */
+  function diagBlock() {
+    var rows = '';
+    for (var i = 0; i < state.diag.length; i++) {
+      var d = state.diag[i];
+      var cls = d.state === 'ok' ? 'ok' : (d.state === 'fail' ? 'fail' : 'wait');
+      var right = d.state === 'ok' ? (d.ms + ' ms') : (d.state === 'fail' ? '不通' : '测试中');
+      rows += '<div class="upd-diag-row ' + cls + '">'
+        + '<span class="upd-diag-tag">' + e(d.tag) + '</span>'
+        + '<span class="upd-diag-r">' + e(right) + '</span>'
+        + '</div>';
+    }
+
+    return '<div class="sec">'
+      + '<div class="sec-head"><div class="sec-title">网络诊断</div>'
+      + '<div class="sec-desc">' + (state.diagBusy ? '测试中…' : '看哪个通道能用') + '</div></div>'
+      + '<div class="upd-card">'
+      + '<div class="upd-card-m">国内网络直连 GitHub 通常不通，App 会自动改用下面的加速通道。'
+      + '这里可以看每条通道此刻通不通；全都"不通"就换个网络（比如手机开热点）再试。</div>'
+      + '<button class="btn ghost block" style="margin-top:12px"'
+      + (state.diagBusy ? ' disabled' : ' onclick="UPD.diag()"') + '>'
+      + (state.diagBusy ? '正在测试…' : '测试各通道') + '</button>'
+      + (rows ? '<div class="upd-diag-list">' + rows + '</div>' : '')
+      + '</div></div>';
+  }
+
   function view() {
     readInfo();
     var info = state.info;
@@ -610,11 +825,14 @@
       + '<div class="ri-d">最多每 6 小时查一次，只提示不自动安装</div></div>'
       + '<button class="switch ' + (autoOn() ? 'on' : '') + '" onclick="UPD.toggleAuto()" aria-label="自动检查"></button>'
       + '</div>'
-      + '<div class="row-item" style="cursor:default">'
+      + '<div class="row-item" style="cursor:pointer" onclick="UPD.editBase()">'
       + '<div class="ri-main"><div class="ri-t">更新源</div>'
-      + '<div class="ri-d" style="white-space:normal">' + e(state.base || ((bases()[0] || {}).base) || '未配置') + '</div></div>'
+      + '<div class="ri-d" style="white-space:normal">' + e(srcDesc()) + '</div></div>'
+      + '<span class="ri-arrow">' + ((window.IC && IC.arrow) ? IC.arrow : '›') + '</span>'
       + '</div>'
+      + (state.editingBase ? baseEditor() : '')
       + '</div></div>'
+      + diagBlock()
       + adv
       + '<div class="sec"><div class="upd-foot">更新只改网页文件或安装包本身，'
       + '不会动你的模型配置和对话记录（它们存在本机文件里）。</div></div>';
@@ -651,6 +869,10 @@
     view: view,
     homeBar: homeBar,
     setBase: function (u) { try { Store.set(K_BASE, String(u || '')); } catch (err) { /* ignore */ } },
+    diag: diag,
+    editBase: editBase,
+    typeBase: typeBase,
+    saveBase: saveBase,
     onChange: null
   };
 })();

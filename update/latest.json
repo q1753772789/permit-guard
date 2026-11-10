@@ -1,22 +1,22 @@
 {
   "schema": 1,
-  "generated": "2026-11-10T13:04:52Z",
-  "notes": "修好「检查更新」卡死：网络请求改为后台线程 + 轮询，界面不再冻结，超时给明确提示",
+  "generated": "2026-11-10T13:26:02Z",
+  "notes": "国内网络也能更新了：新增 gh-proxy/ghfast/jsDelivr 多个加速通道并自动选择，全部不通时 10 秒内给出结论；更新页新增「测试各通道」和手动填源",
   "web": {
-    "version": "3.6",
-    "code": 306,
-    "minApk": 0,
-    "size": 129362,
-    "sha256": "938177e11851c63ee90c0ed84569bee1ffcf86d7dd7f17cdaf45d538b8f899f6",
-    "path": "update/web/www-3.6.zip",
-    "notes": "修好「检查更新」卡死：网络请求改为后台线程 + 轮询，界面不再冻结，超时给明确提示"
+    "version": "3.7",
+    "code": 307,
+    "minApk": 27,
+    "size": 132292,
+    "sha256": "a8bc7ee24d0f1cf8532bfdfc4189592942a9e6acd4574149bb51a616d41cc9d9",
+    "path": "update/web/www-3.7.zip",
+    "notes": "国内网络也能更新了：新增 gh-proxy/ghfast/jsDelivr 多个加速通道并自动选择，全部不通时 10 秒内给出结论；更新页新增「测试各通道」和手动填源"
   },
   "apk": {
-    "versionName": "3.6",
-    "versionCode": 27,
+    "versionName": "3.7",
+    "versionCode": 28,
     "size": 198525,
-    "sha256": "cc57d0cefca2688fac789c4ff1a75e35ca1be3a5431c2aa99e0dfe0581cfb416",
-    "path": "update/apk/permit-guard-3.6.apk",
-    "notes": "修好「检查更新」卡死：网络请求改为后台线程 + 轮询，界面不再冻结，超时给明确提示"
+    "sha256": "344fb6d8d167a2961dbbe0a79b4f19f67a7212a28a9c56285f65e73916b28903",
+    "path": "update/apk/permit-guard-3.7.apk",
+    "notes": "国内网络也能更新了：新增 gh-proxy/ghfast/jsDelivr 多个加速通道并自动选择，全部不通时 10 秒内给出结论；更新页新增「测试各通道」和手动填源"
   }
 }

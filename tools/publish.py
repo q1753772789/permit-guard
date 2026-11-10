@@ -254,6 +254,9 @@ def main():
     ap = argparse.ArgumentParser(description='生成并发布在线更新包')
     ap.add_argument('--repo', help='GitHub 仓库，如 zhangsan/permit-guard（公开仓库）')
     ap.add_argument('--notes', default='', help='更新说明，会显示在 App 更新页')
+    ap.add_argument('--min-apk', type=int, default=0,
+                    help='网页包要求的最低安装包 versionCode。本次网页用到了新的原生接口时必须带上，'
+                         '否则老安装包会热更新到跑不动的网页（例如 3.7 用到了异步桥，应为 27）')
     ap.add_argument('--web-only', action='store_true', help='只发网页热更新')
     ap.add_argument('--apk-only', action='store_true', help='只发安装包')
     ap.add_argument('--no-push', dest='push', action='store_false',
@@ -298,7 +301,7 @@ def main():
         manifest['web'] = {
             'version': ver,
             'code': code,
-            'minApk': 0,
+            'minApk': args.min_apk,
             'size': size,
             'sha256': sha,
             'path': 'update/web/www-%s.zip' % ver,
