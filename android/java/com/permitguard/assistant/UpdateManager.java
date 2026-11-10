@@ -213,7 +213,11 @@ public class UpdateManager {
         if (r == null) return "{\"done\":true,\"text\":\"__ERR__:任务不存在或已过期\"}";
         if (r.length() == 0) return "{\"done\":false}";
         netJobs.remove(token);
-        return "{\"done\":true,\"text\":" + json(r) + "}";
+        // 注意这里的引号：json() 只负责转义内容，外面的引号必须由调用方拼上。
+        // 3.8 及以前漏了这两个引号，返回的是 {"done":true,"text":<裸内容>}，
+        // 前端 JSON.parse 必然失败、被当成"读取结果失败"，于是**所有源都显示不通**——
+        // 网络其实是通的，坑在这一行。
+        return "{\"done\":true,\"text\":\"" + json(r) + "\"}";
     }
 
     /** 页面若中途放弃轮询，完成的旧结果就没人取了；超过 40 条时清理已完成的 */
