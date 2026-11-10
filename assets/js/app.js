@@ -29,7 +29,8 @@ const IC = {
   gear: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a1.9 1.9 0 1 1-2.7 2.7l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a1.9 1.9 0 1 1-3.8 0v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a1.9 1.9 0 1 1-2.7-2.7l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a1.9 1.9 0 1 1 0-3.8h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a1.9 1.9 0 1 1 2.7-2.7l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a1.9 1.9 0 1 1 3.8 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a1.9 1.9 0 1 1 2.7 2.7l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a1.9 1.9 0 1 1 0 3.8h-.2a1.6 1.6 0 0 0-1.4 1z"/></svg>',
   wand: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L15 9"/><path d="M17.5 3l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1 1-2.5z"/><path d="M6.5 4l.7 1.8L9 6.5l-1.8.7L6.5 9l-.7-1.8L4 6.5l1.8-.7L6.5 4z"/></svg>',
   chat: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8 8 0 0 1-8 8H8l-4 2.5v-4.2A8 8 0 0 1 13 3.5a8 8 0 0 1 8 8z"/><path d="M9 11.5h8"/><path d="M9 15h5"/></svg>',
-  shield: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v6c0 4.4-3 7.6-7.5 9-4.5-1.4-7.5-4.6-7.5-9V6L12 3z"/><path d="M12 8.5v4"/><circle cx="12" cy="15.6" r="1" fill="currentColor" stroke="none"/></svg>'
+  shield: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v6c0 4.4-3 7.6-7.5 9-4.5-1.4-7.5-4.6-7.5-9V6L12 3z"/><path d="M12 8.5v4"/><circle cx="12" cy="15.6" r="1" fill="currentColor" stroke="none"/></svg>',
+  clock: '<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.4V12l3.2 2"/></svg>'
 };
 
 function permitIcon(p, size) {
@@ -101,7 +102,6 @@ function md(src) {
 const STATE = {
   route: '',
   detailTab: 'overview',
-  errTab: 'all',
   measureFilter: 'all',
   search: '',
   wz: { permit: 'hot', sel: {}, rel: {} },
@@ -130,7 +130,7 @@ function renderTopbar(route) {
         <div class="tb-title">作业票助手</div>
         <div class="tb-sub">8 类特殊作业票 · 官方填写标准</div>
       </div>
-      <button class="icon-btn ghost" onclick="navigate('/errors')" aria-label="易错红线">${IC.shield}</button>
+      <button class="icon-btn ghost" onclick="navigate('/update')" aria-label="最近更新">${IC.clock}</button>
       <button class="icon-btn ghost" onclick="goSettings()" aria-label="设置">${IC.gear}</button>
     `;
     return;
@@ -593,105 +593,10 @@ function errFits(e, p) {
 }
 
 /* ============================================================ 易错红线 */
-function setErrTab(k) {
-  if (STATE.errTab === k) return;
-  STATE.errTab = k;
-  render(true);
-}
-
-/* 规则更新的标签配色：新增 / 修订 / 口径 / 审计 */
-const UPD_TAG = {
-  新增: 'new',
-  修订: 'fix',
-  口径: 'cal',
-  审计: 'audit'
-};
-
-function updDateLabel(d) {
-  const a = String(d).split('-');
-  const y = +a[0], m = +a[1], day = +a[2];
-  const wk = '日一二三四五六'[new Date(y, m - 1, day).getDay()];
-  return { main: `${m} 月 ${day} 日`, sub: `${y} 年 · 周${wk}` };
-}
-
-function ruleUpdateCard(u) {
-  const cls = UPD_TAG[u.tag] || 'fix';
-  const chips = (u.scope || []).filter(id => PERMIT_MAP[id]).length
-    ? u.scope.filter(id => PERMIT_MAP[id])
-        .map(id => `<button class="tl-chip on" onclick="openPermit('${id}','overview')">${esc(PERMIT_MAP[id].short)}</button>`)
-        .join('')
-    : '<span class="tl-chip">全票种</span>';
-  const items = (u.items || []).length
-    ? `<ul class="tl-list">${u.items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`
-    : '';
-  return `
-    <div class="tl-item ${cls}">
-      <div class="tl-card">
-        <div class="tl-top">
-          <span class="tl-tag ${cls}">${esc(u.tag)}</span>
-          <span class="tl-ver">v${esc(u.ver)}</span>
-        </div>
-        <div class="tl-t">${esc(u.title)}</div>
-        <div class="tl-d">${esc(u.detail)}</div>
-        ${items}
-        <div class="tl-scope">${chips}</div>
-        <div class="tl-src">来源 · ${esc(u.src)}</div>
-      </div>
-    </div>`;
-}
-
-/* 规则更新时间线：按日期倒序分组，同一天的多条挂在一个日期下面 */
-function viewRuleUpdates() {
-  const list = (typeof RULE_UPDATES === 'undefined' ? [] : RULE_UPDATES.slice())
-    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-
-  if (!list.length) {
-    return `<div class="empty">
-      <div class="empty-ic">${IC.warn}</div>
-      <div class="empty-t">还没有规则更新记录</div>
-      <div class="empty-d">规则库每改一次，这里会多一条。<br>数据写在 <b>data.js</b> 的 RULE_UPDATES 里。</div>
-    </div>`;
-  }
-
-  const groups = [];
-  list.forEach(u => {
-    const last = groups[groups.length - 1];
-    if (last && last.date === u.date) last.list.push(u);
-    else groups.push({ date: u.date, list: [u] });
-  });
-
-  const latest = updDateLabel(list[0].date);
-
-  return `
-    <div class="sec" style="margin-top:18px">
-      <div class="upd-card" style="margin-bottom:0">
-        <div class="upd-card-h">
-          <div class="upd-card-t">规则改了什么，按时间倒着看</div>
-          <span class="upd-badge">${list.length} 次改动</span>
-        </div>
-        <div class="upd-card-m">这里只记<b>规则本身</b>的改动——新增红线、修订判定标准、补措施。
-        软件版本更新不在此列，要查版本去「设置 → 应用更新」。最近一次改动：${latest.main}（${latest.sub}）。</div>
-      </div>
-    </div>
-
-    ${groups.map(g => {
-      const d = updDateLabel(g.date);
-      return `<div class="sec" style="margin-top:22px">
-        <div class="tl-date"><b>${d.main}</b><span>${d.sub}</span><span class="tl-date-n">${g.list.length} 条</span></div>
-        <div class="tl-flow">${g.list.map(ruleUpdateCard).join('')}</div>
-      </div>`;
-    }).join('')}
-
-    <div class="sec">
-      <button class="btn primary block" onclick="navigate('/ai')">${IC.sparkle} 有疑问就把票面发 AI 核对</button>
-    </div>`;
-}
-
 function viewErrors() {
   const crit = GLOBAL_ERRORS.filter(e => e.level === 'critical');
   const major = GLOBAL_ERRORS.filter(e => e.level !== 'critical');
   const onsiteN = GLOBAL_ERRORS.filter(e => e.kind === 'onsite').length;
-  const updN = (typeof RULE_UPDATES === 'undefined') ? 0 : RULE_UPDATES.length;
   const item = e => `
     <div class="err-item ${e.level}">
       <div class="err-ic">${IC.warn}</div>
@@ -706,7 +611,13 @@ function viewErrors() {
       </div>
     </div>`;
 
-  const allBody = `
+  return `
+    <div class="hero" style="background:linear-gradient(160deg,#FFFFFF,#FFF4F3);border-color:rgba(229,72,77,.1)">
+      <div class="hero-eyebrow" style="background:var(--danger-soft);color:#A3272C">${IC.alert} 集团通报 + HSE 在线监控日报</div>
+      <div class="hero-title">${GLOBAL_ERRORS.length} 条红线，<em style="color:var(--danger)">踩一条就是废票</em></div>
+      <div class="hero-sub">这些不是理论风险，是真实被通报、被退回、被考核的问题清单。${crit.length} 条属于否决项；另有 ${onsiteN} 条属<b>现场落实</b>类，已在卡片上单独标出。</div>
+    </div>
+
     <div class="sec">
       <div class="sec-head"><div class="sec-title">否决项</div><div class="sec-desc">${crit.length} 条</div></div>
       ${crit.map(item).join('')}
@@ -719,23 +630,7 @@ function viewErrors() {
 
     <div class="sec">
       <button class="btn primary block" onclick="navigate('/ai')">${IC.sparkle} 发截图让 AI 逐条核对</button>
-    </div>`;
-
-  return `
-    <div class="hero" style="background:linear-gradient(160deg,#FFFFFF,#FFF4F3);border-color:rgba(229,72,77,.1)">
-      <div class="hero-eyebrow" style="background:var(--danger-soft);color:#A3272C">${IC.alert} 集团通报 + HSE 在线监控日报</div>
-      <div class="hero-title">${GLOBAL_ERRORS.length} 条红线，<em style="color:var(--danger)">踩一条就是废票</em></div>
-      <div class="hero-sub">这些不是理论风险，是真实被通报、被退回、被考核的问题清单。${crit.length} 条属于否决项；另有 ${onsiteN} 条属<b>现场落实</b>类，已在卡片上单独标出。</div>
     </div>
-
-    <div style="margin-top:16px;position:sticky;top:64px;z-index:30">
-      <div class="segmented">
-        <button class="seg-btn ${STATE.errTab === 'all' ? 'active' : ''}" onclick="setErrTab('all')">全部红线</button>
-        <button class="seg-btn ${STATE.errTab === 'updates' ? 'active' : ''}" onclick="setErrTab('updates')">最近更新<em class="seg-n">${updN}</em></button>
-      </div>
-    </div>
-
-    ${STATE.errTab === 'updates' ? viewRuleUpdates() : allBody}
   `;
 }
 

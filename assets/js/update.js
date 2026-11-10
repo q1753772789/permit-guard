@@ -758,6 +758,113 @@
       + '</div></div>';
   }
 
+  /* ====================================================== 更新说明
+   * 两块分开写：
+   *   应用更新说明（APP_NOTES）—— 界面 / 性能 / 修 BUG / 更新链路
+   *   规则更新说明（RULE_UPDATES）—— 公司办理规定的更正、通报里学到的经验
+   * 混在一起用户就分不清"是我的票要改，还是软件变了"。
+   */
+  function noteDate(d) {
+    var a = String(d || '').split('-');
+    if (a.length < 3) return String(d || '');
+    return (+a[1]) + ' 月 ' + (+a[2]) + ' 日';
+  }
+
+  function noteDateFull(d) {
+    var a = String(d || '').split('-');
+    if (a.length < 3) return { main: String(d || ''), sub: '' };
+    var y = +a[0], m = +a[1], day = +a[2];
+    var wk = '日一二三四五六'[new Date(y, m - 1, day).getDay()];
+    return { main: m + ' 月 ' + day + ' 日', sub: y + ' 年 · 周' + wk };
+  }
+
+  function bulletList(items) {
+    if (!items || !items.length) return '';
+    return '<ul class="tl-list">' + items.map(function (x) {
+      return '<li>' + e(x) + '</li>';
+    }).join('') + '</ul>';
+  }
+
+  /** 应用更新说明：只讲 App 自己变了什么 */
+  function appNotesBlock() {
+    var list = (typeof APP_NOTES === 'undefined' || !APP_NOTES) ? [] : APP_NOTES.slice();
+    if (!list.length) return '';
+    list.sort(function (a, b) {
+      return a.ver < b.ver ? 1 : (a.ver > b.ver ? -1 : 0);
+    });
+
+    var rows = list.map(function (n) {
+      return '<div class="upd-card">'
+        + '<div class="upd-card-h"><div class="upd-card-t">v' + e(n.ver) + '</div>'
+        + '<div class="upd-badge">' + e(noteDate(n.date)) + '</div></div>'
+        + '<div class="an-t">' + e(n.title) + '</div>'
+        + bulletList(n.items)
+        + '</div>';
+    }).join('');
+
+    return '<div class="sec">'
+      + '<div class="sec-head"><div class="sec-title">应用更新说明</div>'
+      + '<div class="sec-desc">界面 / 性能 / 修 BUG</div></div>'
+      + rows + '</div>';
+  }
+
+  /** 规则更新说明：公司规定更正 + 从通报里学到的 */
+  var R_TAG = { '新增': 'new', '修订': 'fix', '口径': 'cal', '审计': 'audit' };
+
+  function ruleCard(u) {
+    var cls = R_TAG[u.tag] || 'fix';
+    var chips = '';
+    if (typeof PERMIT_MAP !== 'undefined') {
+      var ids = (u.scope || []).filter(function (id) { return PERMIT_MAP[id]; });
+      chips = ids.length
+        ? ids.map(function (id) {
+          return '<button class="tl-chip on" onclick="openPermit(\'' + id + '\',\'overview\')">'
+            + e(PERMIT_MAP[id].short) + '</button>';
+        }).join('')
+        : '<span class="tl-chip">全票种</span>';
+    }
+    return '<div class="tl-item ' + cls + '">'
+      + '<div class="tl-card">'
+      + '<div class="tl-top"><span class="tl-tag ' + cls + '">' + e(u.tag) + '</span>'
+      + '<span class="tl-ver">v' + e(u.ver) + '</span></div>'
+      + '<div class="tl-t">' + e(u.title) + '</div>'
+      + '<div class="tl-d">' + e(u.detail) + '</div>'
+      + bulletList(u.items)
+      + (chips ? '<div class="tl-scope">' + chips + '</div>' : '')
+      + '<div class="tl-src">来源 · ' + e(u.src) + '</div>'
+      + '</div></div>';
+  }
+
+  function ruleNotesBlock() {
+    var list = (typeof RULE_UPDATES === 'undefined' || !RULE_UPDATES) ? [] : RULE_UPDATES.slice();
+    if (!list.length) return '';
+    list.sort(function (a, b) {
+      return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0);
+    });
+
+    /* 同一天的改动收在一个日期标题下面 */
+    var groups = [];
+    for (var i = 0; i < list.length; i++) {
+      var g = groups[groups.length - 1];
+      if (g && g.date === list[i].date) g.list.push(list[i]);
+      else groups.push({ date: list[i].date, list: [list[i]] });
+    }
+
+    var body = groups.map(function (grp) {
+      var d = noteDateFull(grp.date);
+      return '<div style="margin-bottom:20px">'
+        + '<div class="tl-date"><b>' + e(d.main) + '</b><span>' + e(d.sub) + '</span>'
+        + '<span class="tl-date-n">' + grp.list.length + ' 条</span></div>'
+        + '<div class="tl-flow">' + grp.list.map(ruleCard).join('') + '</div>'
+        + '</div>';
+    }).join('');
+
+    return '<div class="sec">'
+      + '<div class="sec-head"><div class="sec-title">规则更新说明</div>'
+      + '<div class="sec-desc">' + list.length + ' 次改动</div></div>'
+      + body + '</div>';
+  }
+
   function view() {
     readInfo();
     var info = state.info;
@@ -832,6 +939,8 @@
       + head
       + (body ? '<div class="sec">' + body + '</div>' : '')
       + (secondary ? '<div class="sec">' + secondary + '</div>' : '')
+      + appNotesBlock()
+      + ruleNotesBlock()
       + '<div class="sec">'
       + '<div class="sec-head"><div class="sec-title">更新设置</div></div>'
       + '<div class="row-list">'
