@@ -13,7 +13,7 @@
   'use strict';
 
   /* 发布脚本会把这里替换成 "owner/repo"；保持占位符表示还没配置 */
-  var REPO = '@@REPO@@';
+  var REPO = 'q1753772789/permit-guard';
   var MANIFEST = 'update/latest.json';
 
   var K_LAST = 'tz_upd_last';      // 上次检查时间（毫秒）
