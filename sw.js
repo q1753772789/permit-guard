@@ -1,7 +1,7 @@
 /* 作业票助手 · Service Worker
  * 只缓存本机静态资源，保证断网也能查规则；AI 请求永不缓存。
  */
-const CACHE = 'permit-guard-v36';
+const CACHE = 'permit-guard-v37';
 const ASSETS = [
   './',
   './index.html',

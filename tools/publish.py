@@ -107,10 +107,6 @@ def zip_web(ver):
 
     count = 0
     with zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-        # 版本号也写进包内：App 从本地导入 zip 时靠它认版本，
-        # 不必去解析 data.js，也不依赖文件名。
-        z.writestr('version.json', json.dumps({'version': ver}, ensure_ascii=False))
-        count += 1
         for name in WEB_FILES:
             p = os.path.join(PROJ, name)
             if os.path.isfile(p):
