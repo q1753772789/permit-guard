@@ -91,6 +91,9 @@ public class UpdateManager {
     private volatile String message = "";
     private volatile String resultVersion = "";
     private volatile long resultSize = 0;
+    private volatile boolean cancelFlag = false;    // 取消标志：下载循环逐块检查
+    private volatile HttpURLConnection conn;        // 当前下载连接，取消时强断，别等 20s 读超时
+    private volatile Thread worker;                 // 当前任务线程
 
     UpdateManager(MainActivity host) {
         this.host = host;
@@ -263,6 +266,24 @@ public class UpdateManager {
 
     /* ============================================================ 热更新 */
 
+    /**
+     * JS 请求取消当前下载：置取消标志 + 强断连接。连接断开会立刻抛出，
+     * 下载线程在下一块或异常处退出、清理临时文件，绝不阻塞 JS 线程。
+     * 没有任务时也返回成功，调用方不用先判断。
+     */
+    @JavascriptInterface
+    public String cancelUpdate() {
+        if (!host.localPage()) return err("仅限应用内页面调用");
+        if (!isBusy()) return ok();
+        cancelFlag = true;
+        message = "正在取消…";
+        HttpURLConnection cc = conn;
+        if (cc != null) {
+            try { cc.disconnect(); } catch (Exception ignored) { }
+        }
+        return ok();
+    }
+
     @JavascriptInterface
     public String startWebUpdate(String url, String sha256, String version, long size) {
         if (!host.localPage()) return err("仅限应用内页面调用");
@@ -277,10 +298,12 @@ public class UpdateManager {
         pct = 0;
         message = "正在下载网页更新";
         resultVersion = v;
+        cancelFlag = false;
 
         new Thread(new Runnable() {
             @Override
             public void run() {
+                worker = Thread.currentThread();
                 File zip = new File(webDir, "www-" + v + ".zip");
                 File tmpDir = new File(webDir, v + ".tmp");
                 File dstDir = new File(webDir, v);
@@ -312,7 +335,9 @@ public class UpdateManager {
                     clean(tmpDir);
                     clean(zip);
                     phase = "error";
-                    message = shortErr(e);
+                    message = cancelFlag ? "已取消" : shortErr(e);
+                } finally {
+                    worker = null;
                 }
             }
         }, "web-update").start();
@@ -372,10 +397,12 @@ public class UpdateManager {
         pct = 0;
         message = "正在下载安装包";
         resultVersion = v;
+        cancelFlag = false;
 
         new Thread(new Runnable() {
             @Override
             public void run() {
+                worker = Thread.currentThread();
                 File out = new File(apkDir, "permit-guard-" + v + ".apk");
                 try {
                     if (!apkDir.isDirectory() && !apkDir.mkdirs()) throw new IOException("无法创建目录");
@@ -394,7 +421,9 @@ public class UpdateManager {
                 } catch (Exception e) {
                     clean(out);
                     phase = "error";
-                    message = shortErr(e);
+                    message = cancelFlag ? "已取消" : shortErr(e);
+                } finally {
+                    worker = null;
                 }
             }
         }, "apk-update").start();
@@ -472,6 +501,7 @@ public class UpdateManager {
         MessageDigest md = MessageDigest.getInstance("SHA-256");
         try {
             c = open(url);
+            conn = c;
             int code = c.getResponseCode();
             if (code != 200) throw new IOException("HTTP " + code);
             long total = c.getContentLength();
@@ -482,6 +512,7 @@ public class UpdateManager {
             long done = 0;
             int n;
             while ((n = in.read(buf)) > 0) {
+                if (cancelFlag) throw new IOException("已取消");
                 done += n;
                 if (done > max) throw new IOException("文件超出大小限制");
                 os.write(buf, 0, n);
@@ -492,6 +523,7 @@ public class UpdateManager {
             }
             os.flush();
         } finally {
+            conn = null;
             if (os != null) {
                 try {
                     os.close();

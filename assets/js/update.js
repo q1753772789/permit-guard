@@ -34,6 +34,10 @@
     apk: null,      // 必须装包时的安装包更新
     needApk: false, // 这版网页要求更高的安装包（热更新解决不了）
     task: null,     // 正在进行/刚结束的任务
+    canceling: false,  // 用户点了取消，等原生任务停下来收尾
+    replacing: false,  // 换源重启中：屏蔽任务结束事件，由 restartFromBest 收尾
+    autoRetry: false,  // 老安装包：原生不能中止下载，当前任务失败后自动用最快通道重试
+    switching: null,   // 换源测速状态：{busy, results:[{tag,item,state,ms,err}], chosen, note, err}
     base: '',       // 本次成功拉取清单的源
     tag: '',        // 本次成功的源叫什么（gh-proxy / jsDelivr ...）
     diag: [],       // 各源连通性测试结果
@@ -49,6 +53,13 @@
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  /** 状态变化通知首页提示条刷新（进 IIFE 时 window.UPD 还不存在，别直接引用 UPD） */
+  function notifyChange() {
+    if (typeof window !== 'undefined' && window.UPD && typeof window.UPD.onChange === 'function') {
+      window.UPD.onChange();
+    }
   }
 
   function hasNative() {
@@ -601,7 +612,7 @@
     pollTimer = setInterval(function () {
       var p = null;
       try { p = JSON.parse(bridge.progress() || '{}'); } catch (err) { p = null; }
-      if (!p) return;
+      if (!p || !p.phase) return;   // 原生返回不完整时别把任务状态冲掉
       state.task = p;
       if (p.phase === 'done' || p.phase === 'error') {
         clearInterval(pollTimer);
@@ -616,7 +627,39 @@
   var pending = '';   // 任务结束后要做的事：reload | install
 
   function onTaskEnd(p) {
+    /* 换源重启中：任务的 error/done 事件由 restartFromBest 的看护轮询收尾，这里直接忽略 */
+    if (state.replacing) return;
+
+    /* 用户点了取消：任务停下来后把界面收回到「已取消」，不算错误 */
+    if (state.canceling) {
+      state.canceling = false;
+      stopPoll();
+      if (p.phase === 'done') {     // 极小概率：取消生效前刚好下完了，按完成走
+        if (p.kind === 'apk') { pending = 'install'; }
+        else {
+          state.error = '';
+          pending = 'reload';
+          setTimeout(function () {
+            if (hasNative()) { readInfo(); try { bridge.reloadPage(); } catch (err) { location.reload(); } }
+            else location.reload();
+          }, 700);
+        }
+      } else {
+        state.task = { kind: p.kind, phase: 'canceled', message: '已取消下载' };
+      }
+      return;
+    }
+
     if (p.phase === 'error') {
+      /* 老安装包换源：原生不能中止下载，这里等它自己失败，失败后立刻用最快通道重试 */
+      if (state.autoRetry) {
+        state.autoRetry = false;
+        state.task = { kind: p.kind, phase: 'download', pct: 0, message: '原通道失败，改用最快通道重试' };
+        setTimeout(function () {
+          if (p.kind === 'apk') applyApk(); else applyWeb();
+        }, 300);
+        return;
+      }
       state.error = p.message || '更新失败';
       return;
     }
@@ -678,6 +721,172 @@
     return !!p && (p.phase === 'download' || p.phase === 'verify' || p.phase === 'extract');
   }
 
+  /* -------------------------------------------------------- 取消与换源 */
+
+  function stopPoll() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  /** 新安装包才有 cancelUpdate 桥；老安装包只能做"软取消" */
+  function canCancel() {
+    return hasNative() && typeof bridge.cancelUpdate === 'function';
+  }
+
+  /**
+   * 取消下载。
+   *   新安装包：调 cancelUpdate() 原生中止（置标志 + 强断连接），任务停下后界面收回到「已取消」；
+   *   老安装包：没有中止桥，只能停掉界面进度（软取消）——后台任务可能继续，
+   *            若最终完成，重启应用后同样生效，界面里会说明这一点。
+   */
+  function cancelTask() {
+    if (!busy()) return;
+    state.autoRetry = false;
+    if (!canCancel()) {
+      stopPoll();
+      state.canceling = false;
+      state.task = { kind: state.task.kind, phase: 'canceled', soft: true, message: '已停止进度显示' };
+      if (typeof render === 'function') render(true);
+      notifyChange();
+      return;
+    }
+    state.canceling = true;
+    state.task = { kind: state.task.kind, phase: 'download', pct: state.task.pct, message: '正在取消…' };
+    try { bridge.cancelUpdate(); } catch (err) { /* 桥调用失败就等任务自然结束 */ }
+    if (typeof render === 'function') render(true);
+    notifyChange();
+  }
+
+  /**
+   * 并发测速所有更新通道：谁先拿到清单谁快，但多留 1.5 秒看看有没有更快的，
+   * 全部测完或 6 秒兜底截止。返回最快的源，结果同时画在界面上。
+   */
+  function speedTest(cb) {
+    var all = bases();
+    if (!all.length) { cb('无可用源'); return; }
+
+    var res = [];
+    for (var i = 0; i < all.length; i++) {
+      res.push({ tag: all[i].tag, item: all[i], state: 'wait', ms: 0, err: '' });
+    }
+    state.switching = { busy: true, results: res, chosen: '', note: '', err: '' };
+    if (typeof render === 'function' && location.hash === '#/update') render(true);
+    notifyChange();
+
+    var left = all.length;
+    var best = null;
+    var firstOkAt = 0;
+    var finished = false;
+    var deadline = Date.now() + 6000;
+
+    function settle() {
+      if (finished) return;
+      finished = true;
+      state.switching.busy = false;
+      if (best) {
+        state.switching.chosen = best.tag;
+        cb(null, best);
+      } else {
+        state.switching.err = '所有通道都没测通，换个网络（比如开热点）再试';
+        cb('所有通道都没测通');
+      }
+      if (typeof render === 'function' && location.hash === '#/update') render(true);
+    }
+
+    var guard = setInterval(function () {
+      var hadResult = !!(best && firstOkAt && Date.now() - firstOkAt > 1500);
+      if (!left || hadResult || Date.now() > deadline) {
+        clearInterval(guard);
+        settle();
+      }
+    }, 150);
+
+    for (var j = 0; j < all.length; j++) {
+      (function (n) {
+        var t0 = Date.now();
+        fetchOne(all[n], 4500, function (err) {
+          left--;
+          res[n].ms = Date.now() - t0;
+          if (err) {
+            res[n].state = 'fail';
+            res[n].err = err;
+          } else {
+            res[n].state = 'ok';
+            if (!firstOkAt) firstOkAt = Date.now();
+            if (!best || res[n].ms < best.ms) best = res[n];
+          }
+          if (typeof render === 'function' && location.hash === '#/update') render(true);
+        });
+      })(j);
+    }
+  }
+
+  /** 中止当前任务（新安装包）并用最快通道重新开始下载 */
+  function restartFromBest(kind) {
+    if (busy() && canCancel()) {
+      state.replacing = true;    // 当前任务的收尾事件被 onTaskEnd 忽略
+      try { bridge.cancelUpdate(); } catch (err) { /* ignore */ }
+      var started = Date.now();
+      var t = setInterval(function () {
+        var p = null;
+        try { p = JSON.parse(bridge.progress() || '{}'); } catch (err) { p = null; }
+        var stillBusy = p && (p.phase === 'download' || p.phase === 'verify' || p.phase === 'extract');
+        if (stillBusy && Date.now() - started < 5000) return;
+
+        clearInterval(t);
+        state.replacing = false;
+        stopPoll();
+        if (p && p.phase === 'done') {    // 抢先下完了：直接走完成流程
+          state.task = p;
+          onTaskEnd(p);
+          return;
+        }
+        if (kind === 'apk') applyApk(); else applyWeb();
+        return;
+      }, 150);
+      return;
+    }
+    if (kind === 'apk') applyApk(); else applyWeb();
+  }
+
+  /**
+   * 换源下载：并发测速所有通道 → 选响应最快的 → 尽量立刻用它下载。
+   *   新安装包（v4.4 起）：中止当前任务、马上用最快通道重新开始；
+   *   当前安装包（v4.3）：原生中止不了，记住最快通道，当前任务失败后自动重试。
+   */
+  function switchSource() {
+    if (state.switching && state.switching.busy) return;
+    speedTest(function (err, best) {
+      if (err || !best) return;    // 失败信息已写进 state.switching 并渲染
+      var it = best.item;
+      state.base = it.dl || it.base;   // applyWeb / applyApk 用 state.base 拼下载地址
+      state.tag = it.tag;
+      try { Store.set(K_GOOD, it.tag); } catch (e0) { /* ignore */ }
+
+      /* 没有可下的更新（或浏览器里）：只把最快源记住，下一步手动点立即更新 */
+      if (!state.web && !state.apk) {
+        state.switching.note = '已记住最快通道「' + it.tag + '」（' + best.ms + ' ms），点「立即更新」就会用它下载';
+        if (typeof render === 'function') render(true);
+        return;
+      }
+
+      var kind = state.web ? 'web' : 'apk';
+      if (!busy() || canCancel()) {
+        restartFromBest(kind);
+        if (!state.replacing) {
+          state.switching.note = '已切换到最快通道「' + it.tag + '」（' + best.ms + ' ms），正在重新下载';
+        }
+        if (typeof render === 'function') render(true);
+        return;
+      }
+
+      /* 老安装包且正在下载：只能等当前任务自己结束 */
+      state.autoRetry = true;
+      state.switching.note = '这一版安装包还不能在下载中直接换源：已记住最快通道「' + it.tag + '」（'
+        + best.ms + ' ms），当前任务失败后会自动用它重试。不想等就点「取消下载」结束本次，再点「立即更新」';
+      if (typeof render === 'function') render(true);
+    });
+  }
+
   /* -------------------------------------------------------- 界面 */
 
   function versionRows() {
@@ -698,6 +907,13 @@
   function progressBlock() {
     var p = state.task;
     if (!p) return '';
+    if (p.phase === 'canceled') {
+      var cd = p.soft
+        ? '这一版安装包还不能真正中止后台下载，任务可能会继续跑完：完成后重启应用同样生效。'
+        : '已取消下载。下面的换源测速结果已保留，点「立即更新」或「换源下载」随时重新开始。';
+      return '<div class="upd-panel"><div class="upd-panel-t">已取消</div>'
+        + '<div class="upd-panel-d">' + e(cd) + '</div></div>';
+    }
     if (p.phase === 'done') {
       if (pending === 'install') {
         return '<div class="upd-panel ok">'
@@ -715,6 +931,37 @@
       + '<div class="upd-panel-t">' + e(p.message || '处理中') + '</div>'
       + '<div class="upd-prog"><i style="width:' + pct + '%"></i></div>'
       + '<div class="upd-panel-d">' + pct + '%</div>'
+      + (busy() ? '<div class="upd-edit-btns" style="margin-top:12px">'
+        + '<button class="btn primary" onclick="UPD.switchSource()">'
+        + (state.switching && state.switching.busy ? '测速中…' : '换源下载') + '</button>'
+        + '<button class="btn ghost" onclick="UPD.cancelTask()">取消下载</button>'
+        + '</div>' : '')
+      + '</div>';
+  }
+
+  /** 换源测速的实时结果：谁快一目了然，最快的打勾 */
+  function switchingBlock() {
+    var s = state.switching;
+    if (!s) return '';
+    var rows = '';
+    for (var i = 0; i < s.results.length; i++) {
+      var r = s.results[i];
+      var cls = r.state === 'ok' ? 'ok' : (r.state === 'fail' ? 'fail' : 'wait');
+      var right = r.state === 'ok' ? (r.ms + ' ms') : (r.state === 'fail' ? errText(r.err) : '测试中');
+      rows += '<div class="upd-diag-row ' + cls + '"'
+        + (r.err ? ' title="' + e(r.err) + '"' : '') + '>'
+        + '<span class="upd-diag-tag">' + e(r.tag) + (s.chosen === r.tag ? ' ✓' : '') + '</span>'
+        + '<span class="upd-diag-r">' + e(right) + '</span>'
+        + '</div>';
+    }
+    var note = (s.chosen && s.note)
+      ? '<div class="upd-card-m" style="margin-top:10px">' + e(s.note) + '</div>' : '';
+    var fail = s.err
+      ? '<div class="upd-card-m err" style="margin-top:10px">' + e(s.err) + '</div>' : '';
+    return '<div class="upd-card" style="margin-top:12px">'
+      + '<div class="upd-card-t">换源测速</div>'
+      + (rows ? '<div class="upd-diag-list">' + rows + '</div>' : '')
+      + note + fail
       + '</div>';
   }
 
@@ -960,7 +1207,7 @@
     }
 
     var body = '';
-    if (busy() || (state.task && state.task.phase === 'done')) {
+    if (busy() || (state.task && (state.task.phase === 'done' || state.task.phase === 'canceled'))) {
       body = progressBlock();
     } else if (state.web) {
       /* 常规路径：只换规则和页面，不动安装包 */
@@ -1000,6 +1247,7 @@
       + '</div></div>'
       + head
       + (body ? '<div class="sec">' + body + '</div>' : '')
+      + (state.switching ? '<div class="sec">' + switchingBlock() + '</div>' : '')
       + notesBlock()
       + '<div class="sec">'
       + '<div class="sec-head"><div class="sec-title">更新设置</div></div>'
@@ -1050,6 +1298,8 @@
     applyApk: applyApk,
     install: install,
     rollback: rollback,
+    cancelTask: cancelTask,
+    switchSource: switchSource,
     busy: busy,
     view: view,
     setNotesTab: setNotesTab,
