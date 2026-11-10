@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "generated": "2026-11-10T09:21:12Z",
+  "notes": "支持在线更新：网页热更新 + 安装包升级",
+  "web": {
+    "version": "3.1",
+    "code": 301,
+    "minApk": 0,
+    "size": 127553,
+    "sha256": "867efd7fb61bf470056ef9a8ba4086edcc8ae1aa5c8dc59e3854b3aab2dfd5c2",
+    "path": "web/www-3.1.zip",
+    "notes": "支持在线更新：网页热更新 + 安装包升级"
+  },
+  "apk": {
+    "versionName": "3.1",
+    "versionCode": 22,
+    "size": 194429,
+    "sha256": "8cf590fa9133f5daf5684d998e741a0a127abdcd668871832395275070987fa2",
+    "path": "apk/permit-guard-3.1.apk",
+    "notes": "支持在线更新：网页热更新 + 安装包升级"
+  }
+}

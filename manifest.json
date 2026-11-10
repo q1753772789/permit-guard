@@ -1,0 +1,17 @@
+{
+  "name": "作业票助手 · 特殊作业票办理指引",
+  "short_name": "作业票助手",
+  "description": "8 类特殊作业票填写标准速查、易错点高亮、智能填票向导、AI 对话与截图审票",
+  "lang": "zh-CN",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F2F3F5",
+  "theme_color": "#FF6A00",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

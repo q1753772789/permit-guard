@@ -1,1 +1,20 @@
-# placeholder
+# 构建中间产物（体积大、可重建）
+android/build/
+android/res.zip
+
+# 本机项目数据
+.workbuddy/
+
+# 临时验证页与缓存
+_test_*.html
+__pycache__/
+*.pyc
+Thumbs.db
+.DS_Store
+
+# 签名密钥绝不能进公开仓库：拿到它就能签出「长得像更新」的恶意包
+android/permit-guard.jks
+# GitHub token（凭证，绝不能进仓库）
+.github_token
+# 发布平台生成的元数据
+.wbapp_*.genie
