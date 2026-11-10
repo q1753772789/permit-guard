@@ -38,8 +38,8 @@ KEYSTORE = os.path.join(HERE, 'permit-guard.jks')
 KS_PASS = 'permitguard'
 KS_ALIAS = 'permitguard'
 
-VERSION_CODE = '31'
-VERSION_NAME = '4.0'
+VERSION_CODE = '32'
+VERSION_NAME = '4.1'
 MIN_SDK = '24'
 TARGET_SDK = '34'
 OUT_APK = os.path.join(BUILD, 'permit-guard-%s.apk' % VERSION_NAME)
