@@ -265,10 +265,18 @@
     if (typeof render === 'function' && location.hash === '#/update') render(true);
     if (typeof UPD.onChange === 'function') UPD.onChange();
 
-    fetchManifest(list, 0, function (err, data, base) {
+    function apiSources() {
+      var all = bases(), out = [];
+      for (var i = 0; i < all.length; i++) {
+        if (all[i].kind === 'api') out.push(all[i]);
+      }
+      return out;
+    }
+
+    function done(err, data, base) {
       state.checking = false;
       state.checkedAt = Date.now();
-      try { Store.set(K_LAST, String(state.checkedAt)); } catch (err2) { /* ignore */ }
+      try { Store.set(K_LAST, String(state.checkedAt)); } catch (e3) { /* ignore */ }
       if (err) {
         state.error = err;
         state.manifest = null;
@@ -277,11 +285,31 @@
       } else {
         state.manifest = data;
         state.base = base;
-        evaluate(data);
       }
       if (typeof render === 'function' && location.hash === '#/update') render(true);
       if (typeof UPD.onChange === 'function') UPD.onChange();
       if (cb) cb();
+    }
+
+    fetchManifest(list, 0, function (err, data, base) {
+      if (err) { done(err); return; }
+      state.base = base;
+      var found = evaluate(data);
+
+      // raw / jsDelivr 都有缓存，刚发布的版本可能读到的还是上一版。
+      // 只要这份清单说"没有更新"，就用不经过 CDN 的 API 源再核实一次；
+      // 正常有更新的情况不会多发请求，省配额也不拖慢速度。
+      if (!found && base.indexOf('api.github.com') < 0) {
+        var again = apiSources();
+        if (again.length) {
+          fetchManifest(again, 0, function (e2, d2, b2) {
+            if (!e2 && d2 && evaluate(d2)) { done(null, d2, b2); return; }
+            done(null, data, base);
+          });
+          return;
+        }
+      }
+      done(null, data, base);
     });
   }
 

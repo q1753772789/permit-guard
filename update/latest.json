@@ -1,22 +1,22 @@
 {
   "schema": 1,
-  "generated": "2026-11-10T09:42:07Z",
-  "notes": "接入在线更新：网页热更新 + 安装包升级；清单改用无缓存通道，发布后立即可见",
+  "generated": "2026-11-10T09:43:31Z",
+  "notes": "在线更新可用：网页热更新优先、安装包升级备用；清单走无缓存通道，发版后立即可见",
   "web": {
-    "version": "3.3",
-    "code": 303,
+    "version": "3.4",
+    "code": 304,
     "minApk": 0,
-    "size": 128097,
-    "sha256": "28d83bb549fbaf0755811c83ffa11ab8836bce6b628a9eef99b51b67f982eba2",
-    "path": "web/www-3.3.zip",
-    "notes": "接入在线更新：网页热更新 + 安装包升级；清单改用无缓存通道，发布后立即可见"
+    "size": 128424,
+    "sha256": "ae6deca23d42e23475bee6edf6bd9305c387dd077af3a5d51a4f17776c824df3",
+    "path": "web/www-3.4.zip",
+    "notes": "在线更新可用：网页热更新优先、安装包升级备用；清单走无缓存通道，发版后立即可见"
   },
   "apk": {
-    "versionName": "3.3",
-    "versionCode": 24,
+    "versionName": "3.4",
+    "versionCode": 25,
     "size": 194429,
-    "sha256": "ae58e244b4a151125a7325f621660c584c5c2ef51126e143b2bc185fded82a31",
-    "path": "apk/permit-guard-3.3.apk",
-    "notes": "接入在线更新：网页热更新 + 安装包升级；清单改用无缓存通道，发布后立即可见"
+    "sha256": "6f92731302c1acc31ceb0c6c3d85bb0238dac3378c53254363f59065f9cccc2f",
+    "path": "apk/permit-guard-3.4.apk",
+    "notes": "在线更新可用：网页热更新优先、安装包升级备用；清单走无缓存通道，发版后立即可见"
   }
 }
