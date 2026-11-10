@@ -30,8 +30,9 @@
     error: '',
     manifest: null,
     info: { apkVersionName: '', apkVersionCode: 0, webVersion: '', webApplied: false },
-    web: null,      // 可用的网页更新
-    apk: null,      // 可用的安装包更新
+    web: null,      // 可用的网页（规则）更新
+    apk: null,      // 必须装包时的安装包更新
+    needApk: false, // 这版网页要求更高的安装包（热更新解决不了）
     task: null,     // 正在进行/刚结束的任务
     base: '',       // 本次成功拉取清单的源
     tag: '',        // 本次成功的源叫什么（gh-proxy / jsDelivr ...）
@@ -85,11 +86,15 @@
     return a * 100 + b;
   }
 
-  /** 当前正在跑的网页版本号：应用过热更新就用更新包里的，否则等于 APK 内置 */
-  function currentWebVersion() {
+  /**
+   * 当前生效的规则版本：应用过热更新就用更新包里的，否则等于安装包内置的。
+   * 注意别拿 APP_VERSION 当它——安装包版本只在重装时才变（见 data.js 顶部注释）。
+   */
+  function currentRuleVersion() {
     var info = readInfo();
     if (info.webVersion) return info.webVersion;
-    return String(typeof APP_VERSION === 'string' ? APP_VERSION : '0');
+    return String(typeof RULE_VERSION === 'string' ? RULE_VERSION
+      : (typeof APP_VERSION === 'string' ? APP_VERSION : '0'));
   }
 
   function sizeText(n) {
@@ -354,16 +359,38 @@
 
   /* -------------------------------------------------------- 检查更新 */
 
+  /**
+   * 判断这次要不要更新、走哪条通道。
+   *
+   * 原则：**能只换网页就绝不要求装包**。
+   *   · 网页热更新（规则 / 文案 / 界面）—— 默认走这条，更新完自动重启界面，用户无感；
+   *   · 安装包升级 —— 只有热更新解决不了时才提示，判据是清单里
+   *     `web.minApk > 本机 versionCode`：说明这版网页用到了本机没有的原生接口。
+   *
+   * 所以远端就算挂着一个更新的 APK，只要网页能覆盖本次内容，就不提示装包——
+   * 否则每次发版用户都会被要求重装一遍，这正是 4.4 之前的问题。
+   */
   function evaluate(manifest) {
     readInfo();
+
+    // 浏览器里打开没有"安装包"这回事：刷新页面就是最新，别拿清单去要求装包
+    if (!hasNative()) {
+      state.web = null;
+      state.apk = null;
+      state.needApk = false;
+      return false;
+    }
+
     var apkCode = Number(state.info.apkVersionCode) || 0;
-    var webCode = codeOf(currentWebVersion());
+    var ruleCode = codeOf(currentRuleVersion());
 
     var web = null;
     var apk = null;
 
     var mw = manifest && manifest.web;
-    if (mw && mw.code && Number(mw.code) > webCode && Number(mw.minApk || 0) <= apkCode) {
+    var needApk = !!(mw && Number(mw.minApk || 0) > apkCode);
+
+    if (mw && mw.code && Number(mw.code) > ruleCode && !needApk) {
       web = {
         version: String(mw.version || ''),
         code: Number(mw.code),
@@ -375,7 +402,10 @@
     }
 
     var ma = manifest && manifest.apk;
-    if (ma && ma.versionCode && Number(ma.versionCode) > apkCode) {
+    // 安装包只在这两种情况算"要更新"：
+    //   1) 这版网页要求更高的安装包（必须换包才拿得到本次更新）；
+    //   2) 网页已是最新、安装包却有新版（只改了原生，网页下发不了）。
+    if (ma && Number(ma.versionCode) > apkCode && (needApk || !web)) {
       apk = {
         versionName: String(ma.versionName || ''),
         versionCode: Number(ma.versionCode),
@@ -388,6 +418,12 @@
 
     state.web = web;
     state.apk = apk;
+    state.needApk = needApk;
+
+    // minApk 比本机高、却找不到能装的包：不能假装"已是最新"，说清楚
+    if (needApk && !apk) {
+      state.error = '这一版要用新版安装包才能更新，但清单里没有可下载的安装包，稍后再试或联系维护人';
+    }
     return !!(web || apk);
   }
 
@@ -646,10 +682,12 @@
 
   function versionRows() {
     var info = readInfo();
-    var webV = info.webVersion || (String(typeof APP_VERSION === 'string' ? APP_VERSION : '') + '（内置）');
+    var rule = info.webVersion
+      ? info.webVersion + '（已热更新）'
+      : ((typeof RULE_VERSION === 'string' ? RULE_VERSION : '') + '（内置）');
     var rows = [
       ['安装包版本', (info.apkVersionName || '—') + (info.apkVersionCode ? '（' + info.apkVersionCode + '）' : '')],
-      ['网页版本', webV],
+      ['规则版本', rule],
       ['上次检查', timeText(state.checkedAt || Number(Store.get(K_LAST) || 0))]
     ];
     return rows.map(function (r) {
@@ -668,8 +706,8 @@
           + '<button class="btn primary block" style="margin-top:12px" onclick="UPD.install()">安装新版本</button>'
           + '</div>';
       }
-      return '<div class="upd-panel ok"><div class="upd-panel-t">网页已更新</div>'
-        + '<div class="upd-panel-d">正在重新加载页面…</div></div>';
+      return '<div class="upd-panel ok"><div class="upd-panel-t">更新完成</div>'
+        + '<div class="upd-panel-d">正在重启界面…（安装包没动，不用重装 App）</div></div>';
     }
     if (p.phase === 'error') return '';
     var pct = Math.max(2, Math.min(100, Number(p.pct) || 0));
@@ -912,34 +950,30 @@
     } else if (state.error) {
       statusLine = '<div class="upd-card-m err" style="margin-top:10px">' + e(state.error) + '</div>';
     } else if (state.checkedAt) {
-      statusLine = '<div class="upd-card-m" style="margin-top:10px">'
-        + (state.web || state.apk ? '有新版本可用' : '已是最新版本') + '</div>';
+      var tip = '已是最新版本';
+      if (state.web) {
+        tip = '有新的规则更新 v' + state.web.version + '，不用重装 App';
+      } else if (state.apk) {
+        tip = '这次要装新版 App 才能更新';
+      }
+      statusLine = '<div class="upd-card-m" style="margin-top:10px">' + e(tip) + '</div>';
     }
 
     var body = '';
     if (busy() || (state.task && state.task.phase === 'done')) {
       body = progressBlock();
-    } else if (state.apk) {
-      var a = state.apk;
-      body = card('安装包升级', 'v' + a.versionName + '（' + a.versionCode + '）',
-        '大小 ' + sizeText(a.size) + ' · 装完自动带最新网页内容', a.notes,
-        'UPD.applyApk()', '下载安装包');
     } else if (state.web) {
+      /* 常规路径：只换规则和页面，不动安装包 */
       var w = state.web;
-      body = card('网页热更新', 'v' + w.version,
-        '大小 ' + sizeText(w.size) + ' · 几秒完成，不用装包', w.notes,
-        'UPD.applyWeb()', '立即更新（推荐）');
-    }
-
-    /* 有安装包更新时，热更新只作为备选 */
-    var secondary = '';
-    if (state.apk && state.web && !busy()) {
-      secondary = '<div class="upd-card">'
-        + '<div class="upd-card-t">也可以只更新网页</div>'
-        + '<div class="upd-note">v' + e(state.web.version) + ' 的网页包（' + e(sizeText(state.web.size)) + '）。'
-        + '不装包就能用上新规则、新文案；但原生相关的变化要等安装包升级才生效。</div>'
-        + '<button class="btn ghost block" style="margin-top:12px" onclick="UPD.applyWeb()">只更新网页</button>'
-        + '</div>';
+      body = card('规则与页面更新', 'v' + w.version,
+        '大小 ' + sizeText(w.size) + ' · 只换网页文件，更新完自动重启，不用重装 App', w.notes,
+        'UPD.applyWeb()', '立即更新并重启');
+    } else if (state.apk) {
+      /* 例外路径：这次改了 App 本体，热更新下发不了 */
+      var a = state.apk;
+      body = card('需要安装新版 App', 'v' + a.versionName + '（' + a.versionCode + '）',
+        '大小 ' + sizeText(a.size) + ' · 这次改动涉及 App 本体，热更新换不了，必须装包', a.notes,
+        'UPD.applyApk()', '下载安装包');
     }
 
     var adv = '';
@@ -966,7 +1000,6 @@
       + '</div></div>'
       + head
       + (body ? '<div class="sec">' + body + '</div>' : '')
-      + (secondary ? '<div class="sec">' + secondary + '</div>' : '')
       + notesBlock()
       + '<div class="sec">'
       + '<div class="sec-head"><div class="sec-title">更新设置</div></div>'
@@ -985,16 +1018,17 @@
       + '</div></div>'
       + diagBlock()
       + adv
-      + '<div class="sec"><div class="upd-foot">更新只改网页文件或安装包本身，'
-      + '不会动你的模型配置和对话记录（它们存在本机文件里）。</div></div>';
+      + '<div class="sec"><div class="upd-foot">平时更新只换网页文件（规则和界面），'
+      + '不用重装 App；只有改动 App 本体时才下载安装包。'
+      + '都不会动你的模型配置和对话记录（它们存在本机文件里）。</div></div>';
   }
 
   /** 首页提示条：检查到更新时显示 */
   function homeBar() {
     if (!(state.web || state.apk)) return '';
     var txt = state.apk
-      ? ('发现新版本 ' + state.apk.versionName)
-      : ('网页可热更新到 ' + state.web.version);
+      ? ('需要安装新版 App ' + state.apk.versionName)
+      : ('规则可更新到 ' + state.web.version + '，点一下就行');
     return '<button class="upd-bar" onclick="navigate(\'/update\')">'
       + '<span class="upd-bar-ic">' + (window.IC && IC.up ? IC.up : '↑') + '</span>'
       + '<span class="upd-bar-t">' + e(txt) + '</span>'
@@ -1007,7 +1041,7 @@
     state: state,
     hasNative: hasNative,
     info: readInfo,
-    currentWebVersion: currentWebVersion,
+    currentRuleVersion: currentRuleVersion,
     check: function (force) { check(force); },
     autoMaybe: autoMaybe,
     autoOn: autoOn,
@@ -1025,6 +1059,8 @@
     editBase: editBase,
     typeBase: typeBase,
     saveBase: saveBase,
-    onChange: null
+    onChange: null,
+    /* 自检用：给定清单返回"要不要更新、走哪条通道"的结论，不碰网络 */
+    _evaluate: function (m) { return evaluate(m); }
   };
 })();

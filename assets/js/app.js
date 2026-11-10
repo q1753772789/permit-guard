@@ -303,7 +303,7 @@ function viewHome() {
     <div class="footer-note">
       规则依据：《特殊作业许可证填写标准》《作业票风险辨识及防控措施填写模板》《近三年被中化通报问题》<br>
       本工具用于辅助填写，最终以属地 HSE 审核意见为准<br>
-      <span style="opacity:.75">版本 v${APP_VERSION}</span>
+      <span style="opacity:.75">规则版本 v${RULE_VERSION}</span>
     </div>
   `;
 }

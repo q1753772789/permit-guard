@@ -310,17 +310,19 @@ const SETTINGS = (function () {
 
     ${(typeof UPD !== 'undefined') ? (() => {
       const ui = UPD.info();
-      const web = ui.webVersion || (APP_VERSION + '（内置）');
-      const apk = (ui.apkVersionName || APP_VERSION) + (ui.apkVersionCode ? '（' + ui.apkVersionCode + '）' : '');
+      const appV = ui.apkVersionName || APP_VERSION;
+      const apk = appV + (ui.apkVersionCode ? '（' + ui.apkVersionCode + '）' : '');
+      const ruleV = typeof RULE_VERSION === 'string' ? RULE_VERSION : appV;
+      const rule = ui.webVersion ? ui.webVersion + '（已热更新）' : ruleV + '（内置）';
       return `
     <div class="sec">
-      <div class="sec-head"><div class="sec-title">应用更新</div><div class="sec-desc">网页可热更新，不用重装</div></div>
+      <div class="sec-head"><div class="sec-title">应用更新</div><div class="sec-desc">规则热更新，不用重装</div></div>
       <div class="row-list">
         <div class="row-item" onclick="navigate('/update')">
           <div class="note-ic">${IC.up}</div>
           <div class="ri-main">
             <div class="ri-t">检查更新</div>
-            <div class="ri-d">安装包 ${esc(apk)} · 网页 ${esc(web)}</div>
+            <div class="ri-d">安装包 ${esc(apk)} · 规则 ${esc(rule)}</div>
           </div>
           <span class="ri-arrow">${IC.arrow}</span>
         </div>
@@ -365,7 +367,7 @@ const SETTINGS = (function () {
 
     <div class="footer-note">
       AI 输出仅作辅助，最终以属地 HSE 审核意见为准<br>
-      <span style="opacity:.75">作业票助手 v${typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''} · 规则库 8 类票 · 125 条措施</span>
+      <span style="opacity:.75">作业票助手 · 规则版本 v${typeof RULE_VERSION !== 'undefined' ? RULE_VERSION : ''} · 8 类票 · 125 条措施</span>
     </div>
     `;
   }
