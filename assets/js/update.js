@@ -197,11 +197,15 @@
     });
   }
 
-  /** 把清单里的相对路径补成完整地址（跟随本次成功的源） */
+  /** 把清单里的相对路径补成完整地址（跟随本次成功的源）
+   *  清单里的 path 以仓库根为基准（update/web/xxx.zip）。早期清单写的是 web/xxx.zip，
+   *  这里统一补上 update/，否则下载地址会少一层目录直接 404。 */
   function urlOf(base, rel, altBase) {
     if (!rel) return '';
     if (/^https?:\/\//.test(rel)) return rel;
-    return (base || altBase || '') + rel.replace(/^\/+/, '');
+    var r = String(rel).replace(/^\/+/, '');
+    if (!/^update\//.test(r)) r = 'update/' + r;
+    return (base || altBase || '') + r;
   }
 
   /* -------------------------------------------------------- 检查更新 */

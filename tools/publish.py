@@ -266,7 +266,7 @@ def main():
             'minApk': 0,
             'size': size,
             'sha256': sha,
-            'path': 'web/www-%s.zip' % ver,
+            'path': 'update/web/www-%s.zip' % ver,
             'notes': args.notes
         }
 
@@ -281,7 +281,7 @@ def main():
                 'versionCode': vcode,
                 'size': size,
                 'sha256': sha,
-                'path': 'apk/permit-guard-%s.apk' % ver,
+                'path': 'update/apk/permit-guard-%s.apk' % ver,
                 'notes': args.notes
             }
         else:
