@@ -109,21 +109,46 @@
     var list = [];
     var custom = '';
     try { custom = Store.get(K_BASE) || ''; } catch (err) { custom = ''; }
-    if (custom) list.push(String(custom).replace(/\/+$/, '') + '/');
+    if (custom) {
+      var c = String(custom).replace(/\/+$/, '') + '/';
+      list.push({ base: c, dl: c });
+    }
 
     if (REPO && REPO.indexOf('@@') < 0 && REPO.indexOf('/') > 0) {
       var owner = REPO.split('/')[0];
       var repo = REPO.split('/')[1];
-      // raw 最新但要能连上 github；jsDelivr 国内通常更快（分支缓存最多 12 小时，作为备选）
-      list.push('https://raw.githubusercontent.com/' + REPO + '/main/');
-      list.push('https://cdn.jsdelivr.net/gh/' + REPO + '@main/');
-      list.push('https://' + owner + '.github.io/' + repo + '/');
+      var raw = 'https://raw.githubusercontent.com/' + REPO + '/main/';
+      var jd = 'https://cdn.jsdelivr.net/gh/' + REPO + '@main/';
+      var io = 'https://' + owner + '.github.io/' + repo + '/';
+
+      list.push({ base: raw, dl: raw });
+      // GitHub 内容接口：绕开 CDN 缓存，清单永远是最新的那份。
+      // 公开仓库可匿名读（限流 60 次/小时/IP），够一次检查用；超限会自动落到下一源。
+      list.push({ base: 'https://api.github.com/repos/' + REPO, dl: raw, kind: 'api' });
+      // jsDelivr 国内快，但对 main 分支有最长 12 小时缓存，只当兜底
+      list.push({ base: jd, dl: jd });
+      list.push({ base: io, dl: io });
     }
     return list;
   }
 
   function bust(url) {
     return url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+  }
+
+  /** contents 接口返回的 base64 → UTF-8 文本 */
+  function b64utf8(b64) {
+    try {
+      var bin = atob(String(b64).replace(/\s+/g, ''));
+      if (typeof TextDecoder === 'function') {
+        var arr = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return new TextDecoder('utf-8').decode(arr);
+      }
+      return decodeURIComponent(escape(bin));
+    } catch (err) {
+      return '';
+    }
   }
 
   function fetchJson(url, cb) {
@@ -149,12 +174,25 @@
     });
   }
 
-  /** 依次尝试各个源，第一个成功的胜出 */
+  /** 依次尝试各个源，第一个成功的胜出；回调里的 base 一定是可下载的地址 */
   function fetchManifest(list, idx, cb) {
     if (idx >= list.length) { cb('所有更新源都连不上'); return; }
-    var base = list[idx];
-    fetchJson(bust(base + MANIFEST), function (err, data) {
-      if (!err && data && data.web) { cb(null, data, base); return; }
+    var item = list[idx];
+    var dl = item.dl || item.base;
+
+    if (item.kind === 'api') {
+      fetchJson(item.base + '/contents/' + MANIFEST + '?ref=main&t=' + Date.now(), function (err, data) {
+        if (err || !data || !data.content) { fetchManifest(list, idx + 1, cb); return; }
+        var obj = null;
+        try { obj = JSON.parse(b64utf8(data.content)); } catch (e2) { obj = null; }
+        if (obj && obj.web) { cb(null, obj, dl); return; }
+        fetchManifest(list, idx + 1, cb);
+      });
+      return;
+    }
+
+    fetchJson(bust(item.base + MANIFEST), function (err, data) {
+      if (!err && data && data.web) { cb(null, data, dl); return; }
       fetchManifest(list, idx + 1, cb);
     });
   }
@@ -489,7 +527,7 @@
       + '</div>'
       + '<div class="row-item" style="cursor:default">'
       + '<div class="ri-main"><div class="ri-t">更新源</div>'
-      + '<div class="ri-d" style="white-space:normal">' + e(state.base || (bases()[0] || '未配置')) + '</div></div>'
+      + '<div class="ri-d" style="white-space:normal">' + e(state.base || ((bases()[0] || {}).base) || '未配置') + '</div></div>'
       + '</div>'
       + '</div></div>'
       + adv

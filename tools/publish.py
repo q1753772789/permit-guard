@@ -147,6 +147,20 @@ def write_repo(repo):
     return s2 != s
 
 
+def current_repo():
+    """读 update.js 里已配置的仓库地址；占位符视为未配置。"""
+    p = os.path.join(PROJ, 'assets', 'js', 'update.js')
+    if not os.path.isfile(p):
+        return ''
+    m = re.search(r"var REPO = '([^']*)'", read_text(p))
+    if not m:
+        return ''
+    v = m.group(1)
+    if '@@' in v or '/' not in v:
+        return ''
+    return v
+
+
 def git(args, cwd=None, check=True):
     return subprocess.run(['git'] + args, cwd=cwd or PROJ, check=check,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -281,8 +295,10 @@ def main():
     print('  清单：update/latest.json')
 
     if args.push:
-        if not args.repo:
-            sys.exit('推送需要 --repo')
+        target = args.repo or current_repo()
+        if not target:
+            sys.exit('还没配置仓库：先跑一次 python tools/publish.py --repo 用户名/仓库名')
+        args.repo = target
         print('\n  提交并推送…')
         ok = push(args.repo, args.remote, args.notes, ver)
         if ok:

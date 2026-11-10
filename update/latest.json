@@ -1,22 +1,22 @@
 {
   "schema": 1,
-  "generated": "2026-11-10T09:39:10Z",
-  "notes": "接入在线更新：网页热更新 + 安装包升级",
+  "generated": "2026-11-10T09:42:07Z",
+  "notes": "接入在线更新：网页热更新 + 安装包升级；清单改用无缓存通道，发布后立即可见",
   "web": {
-    "version": "3.2",
-    "code": 302,
+    "version": "3.3",
+    "code": 303,
     "minApk": 0,
-    "size": 127545,
-    "sha256": "7c5379cd152fe5f6f5c652e132295aad9b0c9f1ab807b5e05177559a9ffa1bdf",
-    "path": "web/www-3.2.zip",
-    "notes": "接入在线更新：网页热更新 + 安装包升级"
+    "size": 128097,
+    "sha256": "28d83bb549fbaf0755811c83ffa11ab8836bce6b628a9eef99b51b67f982eba2",
+    "path": "web/www-3.3.zip",
+    "notes": "接入在线更新：网页热更新 + 安装包升级；清单改用无缓存通道，发布后立即可见"
   },
   "apk": {
-    "versionName": "3.2",
-    "versionCode": 23,
+    "versionName": "3.3",
+    "versionCode": 24,
     "size": 194429,
-    "sha256": "fc5df8c6aa5a02e1226b0390020a2f7d637040535e7ffc4fe136c02f23ec124c",
-    "path": "apk/permit-guard-3.2.apk",
-    "notes": "接入在线更新：网页热更新 + 安装包升级"
+    "sha256": "ae58e244b4a151125a7325f621660c584c5c2ef51126e143b2bc185fded82a31",
+    "path": "apk/permit-guard-3.3.apk",
+    "notes": "接入在线更新：网页热更新 + 安装包升级；清单改用无缓存通道，发布后立即可见"
   }
 }

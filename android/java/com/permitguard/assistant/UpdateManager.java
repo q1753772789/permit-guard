@@ -145,6 +145,10 @@ public class UpdateManager {
         HttpURLConnection c = null;
         try {
             c = open(url);
+            // 必须声明不走缓存：raw.githubusercontent.com 的 CDN/源站会缓存清单，
+            // 不带这个头时刚发布的版本可能几分钟内读不到，表现成"检查不到更新"。
+            c.setRequestProperty("Cache-Control", "no-cache, no-store");
+            c.setRequestProperty("Pragma", "no-cache");
             int code = c.getResponseCode();
             if (code != 200) return "__ERR__:HTTP " + code;
             InputStream in = c.getInputStream();
