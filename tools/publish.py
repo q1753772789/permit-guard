@@ -327,6 +327,7 @@ def main():
 
     latest = os.path.join(OUT, 'latest.json')
     write_text(latest, json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+    prune()
     print('  清单：update/latest.json')
 
     if args.push:
