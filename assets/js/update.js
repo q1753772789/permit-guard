@@ -629,6 +629,30 @@
     if (!r.ok) { state.error = r.message || '调起安装失败'; render(true); }
   }
 
+  /**
+   * 本地更新包导入：所有网络通道都不通时的兜底。
+   * 用户从微信/QQ/数据线拿到 www-x.y.zip，存到手机，在这里选一下就能装，
+   * 不用装 APK，也不用等网络。
+   */
+  function importZip() {
+    if (!hasNative() || typeof bridge.pickWebZip !== 'function') {
+      state.error = '当前安装包还不支持本地导入，先把安装包升到 3.8 以上';
+      render(true);
+      return;
+    }
+    if (busy()) return;
+    state.error = '';
+    var r = parseRes(bridge.pickWebZip());
+    if (!r.ok) {
+      state.error = r.message || '打不开文件选择器';
+      render(true);
+      return;
+    }
+    state.task = { kind: 'web', phase: 'download', pct: 2, message: '已选好文件，正在读取' };
+    render(true);
+    startPoll();
+  }
+
   function rollback() {
     if (!hasNative()) return;
     var r = parseRes(bridge.clearWeb());
@@ -717,14 +741,42 @@
       + '</div></div>';
   }
 
+  /** 把网络异常翻译成一句人话——"不通"两个字没法判断该换网络还是换源 */
+  function errText(err) {
+    var s = String(err || '');
+    if (!s) return '不通';
+    if (/白名单/.test(s)) return '被应用拦下';
+    if (/timeout|超时/i.test(s)) return '连接超时';
+    if (/UnknownHost|resolve|解析/i.test(s)) return '域名解析失败';
+    if (/SSL|Cert|证书/i.test(s)) return '证书校验失败';
+    if (/refused|拒绝/i.test(s)) return '连接被拒绝';
+    var m = s.match(/HTTP\s*(\d{3})/i);
+    if (m) return '服务器返回 ' + m[1];
+    return s.length > 22 ? s.slice(0, 22) + '…' : s;
+  }
+
+  /** 本地更新包入口：网络全断时这就是唯一能用的路 */
+  function localZipBlock() {
+    var noNet = /连不上|超时|网络|失败/.test(state.error || '');
+    return '<div class="sec">'
+      + '<div class="sec-head"><div class="sec-title">本地更新包</div>'
+      + '<div class="sec-desc">没网络时走这条</div></div>'
+      + '<div class="upd-card">'
+      + '<div class="upd-card-m">从微信 / QQ / 数据线收到 <b>www-x.x.zip</b> 这样的文件，'
+      + '先存到手机里（下载目录就行），再点下面的按钮选中它，直接装上，全程不用联网。</div>'
+      + '<button class="btn ' + (noNet ? 'primary' : 'ghost') + ' block" style="margin-top:12px"'
+      + ' onclick="UPD.importZip()">选择更新包文件</button>'
+      + '</div></div>';
+  }
+
   /** 网络诊断：把每个通道的连通性和耗时列出来 */
   function diagBlock() {
     var rows = '';
     for (var i = 0; i < state.diag.length; i++) {
       var d = state.diag[i];
       var cls = d.state === 'ok' ? 'ok' : (d.state === 'fail' ? 'fail' : 'wait');
-      var right = d.state === 'ok' ? (d.ms + ' ms') : (d.state === 'fail' ? '不通' : '测试中');
-      rows += '<div class="upd-diag-row ' + cls + '">'
+      var right = d.state === 'ok' ? (d.ms + ' ms') : (d.state === 'fail' ? errText(d.err) : '测试中');
+      rows += '<div class="upd-diag-row ' + cls + '"' + (d.err ? ' title="' + e(d.err) + '"' : '') + '>'
         + '<span class="upd-diag-tag">' + e(d.tag) + '</span>'
         + '<span class="upd-diag-r">' + e(right) + '</span>'
         + '</div>';
@@ -734,8 +786,9 @@
       + '<div class="sec-head"><div class="sec-title">网络诊断</div>'
       + '<div class="sec-desc">' + (state.diagBusy ? '测试中…' : '看哪个通道能用') + '</div></div>'
       + '<div class="upd-card">'
-      + '<div class="upd-card-m">国内网络直连 GitHub 通常不通，App 会自动改用下面的加速通道。'
-      + '这里可以看每条通道此刻通不通；全都"不通"就换个网络（比如手机开热点）再试。</div>'
+      + '<div class="upd-card-m">国内网络直连 GitHub 通常不通，App 会自动改用加速通道。'
+      + '这里能看出每条通道卡在哪一步：「连接超时」是网络拦了，「域名解析失败」是运营商 DNS 不给解析。'
+      + '全部不通就往下拉，用本地更新包。</div>'
       + '<button class="btn ghost block" style="margin-top:12px"'
       + (state.diagBusy ? ' disabled' : ' onclick="UPD.diag()"') + '>'
       + (state.diagBusy ? '正在测试…' : '测试各通道') + '</button>'
@@ -832,6 +885,7 @@
       + '</div>'
       + (state.editingBase ? baseEditor() : '')
       + '</div></div>'
+      + localZipBlock()
       + diagBlock()
       + adv
       + '<div class="sec"><div class="upd-foot">更新只改网页文件或安装包本身，'
@@ -864,6 +918,7 @@
     applyWeb: applyWeb,
     applyApk: applyApk,
     install: install,
+    importZip: importZip,
     rollback: rollback,
     busy: busy,
     view: view,

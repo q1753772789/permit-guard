@@ -1,22 +1,22 @@
 {
   "schema": 1,
-  "generated": "2026-11-10T13:26:02Z",
-  "notes": "国内网络也能更新了：新增 gh-proxy/ghfast/jsDelivr 多个加速通道并自动选择，全部不通时 10 秒内给出结论；更新页新增「测试各通道」和手动填源",
+  "generated": "2026-11-10T13:52:32Z",
+  "notes": "网络全不通时的兜底：更新页新增「本地更新包」，从微信/QQ收到 zip 存到手机后直接选它安装，全程不用联网；网络诊断不再只说「不通」，会写明是连接超时、域名解析失败还是证书错误；更新源白名单加入 Gitee / GitCode / CNB 等国内托管",
   "web": {
-    "version": "3.7",
-    "code": 307,
-    "minApk": 27,
-    "size": 132292,
-    "sha256": "a8bc7ee24d0f1cf8532bfdfc4189592942a9e6acd4574149bb51a616d41cc9d9",
-    "path": "update/web/www-3.7.zip",
-    "notes": "国内网络也能更新了：新增 gh-proxy/ghfast/jsDelivr 多个加速通道并自动选择，全部不通时 10 秒内给出结论；更新页新增「测试各通道」和手动填源"
+    "version": "3.8",
+    "code": 308,
+    "minApk": 0,
+    "size": 133233,
+    "sha256": "bb9d1ae1ba411b3b1af8a7164c01ea7bb0ee8ff99f677a78197a778a5d79f239",
+    "path": "update/web/www-3.8.zip",
+    "notes": "网络全不通时的兜底：更新页新增「本地更新包」，从微信/QQ收到 zip 存到手机后直接选它安装，全程不用联网；网络诊断不再只说「不通」，会写明是连接超时、域名解析失败还是证书错误；更新源白名单加入 Gitee / GitCode / CNB 等国内托管"
   },
   "apk": {
-    "versionName": "3.7",
-    "versionCode": 28,
-    "size": 198525,
-    "sha256": "344fb6d8d167a2961dbbe0a79b4f19f67a7212a28a9c56285f65e73916b28903",
-    "path": "update/apk/permit-guard-3.7.apk",
-    "notes": "国内网络也能更新了：新增 gh-proxy/ghfast/jsDelivr 多个加速通道并自动选择，全部不通时 10 秒内给出结论；更新页新增「测试各通道」和手动填源"
+    "versionName": "3.8",
+    "versionCode": 29,
+    "size": 202621,
+    "sha256": "4ce196b24e575ff6fab1f79a5a6bde1c8984cd37f85a3012a3757c01e472e931",
+    "path": "update/apk/permit-guard-3.8.apk",
+    "notes": "网络全不通时的兜底：更新页新增「本地更新包」，从微信/QQ收到 zip 存到手机后直接选它安装，全程不用联网；网络诊断不再只说「不通」，会写明是连接超时、域名解析失败还是证书错误；更新源白名单加入 Gitee / GitCode / CNB 等国内托管"
   }
 }

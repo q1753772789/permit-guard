@@ -57,6 +57,13 @@ public class UpdateManager {
             "gh.llkk.cc",
             "ghproxy.net",
             "gitmirror.com",
+            // 国内代码托管：手机流量/家用宽带下 GitHub 生态整体不通时，靠这几个兜底。
+            // 都是实名平台上的公开仓库，raw 匿名可读，国内直连。
+            "gitee.com",
+            "giteeusercontent.com",
+            "gitcode.com",
+            "gitcode.net",
+            "cnb.cool",
             "permit-guard.app.workbuddy.host",
             "workbuddy.host"
     };
@@ -343,6 +350,147 @@ public class UpdateManager {
         } catch (Exception e) {
             return err(shortErr(e));
         }
+    }
+
+    /* ======================================================== 本地更新包导入 */
+
+    /**
+     * 断网兜底：让用户从手机里挑一个更新包 zip 直接装上。
+     *
+     * 为什么需要它：国内手机网络对 GitHub 及其公开反代的封锁是整段的，
+     * 也不是每个现场都有 Wi-Fi。但"从微信收到一个文件、存到手机"人人都能做。
+     * 走系统文件选择器（SAF），不申请任何存储权限，Android 11+ 分区存储也不受影响。
+     */
+    @JavascriptInterface
+    public String pickWebZip() {
+        if (!host.localPage()) return err("仅限应用内页面调用");
+        if (isBusy()) return err("已有任务在进行，稍后再试");
+        return host.pickWebZipFile();
+    }
+
+    /** MainActivity 选完文件后回调；uri 为 null 表示用户取消了选择 */
+    void installZipFromUri(final Uri uri) {
+        if (uri == null) {
+            phase = "error";
+            message = "没有选择文件";
+            return;
+        }
+        kind = "web";
+        phase = "download";
+        pct = 3;
+        message = "正在读取更新包";
+        resultVersion = "";
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                File zip = new File(webDir, "import.zip");
+                File tmpDir = new File(webDir, "import.tmp");
+                InputStream in = null;
+                OutputStream os = null;
+                try {
+                    if (!webDir.isDirectory() && !webDir.mkdirs()) throw new IOException("无法创建目录");
+                    clean(tmpDir);
+                    clean(zip);
+
+                    in = host.getContentResolver().openInputStream(uri);
+                    if (in == null) throw new IOException("打不开所选文件");
+
+                    os = new FileOutputStream(zip);
+                    byte[] buf = new byte[16384];
+                    long total = 0;
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        total += n;
+                        if (total > MAX_ZIP) throw new IOException("文件太大，不像是更新包");
+                        os.write(buf, 0, n);
+                    }
+                    os.flush();
+                    os.close();
+                    os = null;
+                    in.close();
+                    in = null;
+
+                    phase = "extract";
+                    pct = 55;
+                    message = "正在解压";
+                    unzip(zip, tmpDir);
+                    if (!new File(tmpDir, "index.html").isFile()) {
+                        throw new IOException("这不是更新包（里面没有 index.html）");
+                    }
+
+                    String v = packageVersion(tmpDir);
+                    if (!validVersion(v)) v = "local_" + (System.currentTimeMillis() / 1000L);
+                    resultVersion = v;
+
+                    // 同一版本重复导入就直接覆盖，方便发错包时重来
+                    File dstDir = new File(webDir, v);
+                    clean(dstDir);
+                    if (!tmpDir.renameTo(dstDir)) throw new IOException("写入失败");
+                    writeMarker(v);
+
+                    clean(zip);
+                    pct = 100;
+                    phase = "done";
+                    message = "更新包已应用";
+                } catch (Exception e) {
+                    clean(tmpDir);
+                    clean(zip);
+                    phase = "error";
+                    message = shortErr(e);
+                } finally {
+                    if (os != null) {
+                        try {
+                            os.close();
+                        } catch (IOException ignored) {
+                        }
+                    }
+                    if (in != null) {
+                        try {
+                            in.close();
+                        } catch (IOException ignored) {
+                        }
+                    }
+                }
+            }
+        }, "web-import").start();
+    }
+
+    /** 从解压出来的包里读版本号：优先 version.json，其次 data.js 里的 APP_VERSION */
+    private String packageVersion(File dir) {
+        File vj = new File(dir, "version.json");
+        if (vj.isFile()) {
+            try {
+                String s = new String(readAll(vj), "UTF-8");
+                String v = firstJsonString(s, "version");
+                if (v != null && v.length() > 0) return v;
+            } catch (Exception ignored) {
+            }
+        }
+        File dj = new File(dir, "assets/js/data.js");
+        if (dj.isFile()) {
+            try {
+                String s = new String(readAll(dj), "UTF-8");
+                int i = s.indexOf("APP_VERSION");
+                if (i >= 0) {
+                    int q1 = s.indexOf('\'', i);
+                    int q2 = q1 < 0 ? -1 : s.indexOf('\'', q1 + 1);
+                    if (q1 > 0 && q2 > q1) return s.substring(q1 + 1, q2).trim();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return "";
+    }
+
+    /** 极简 JSON 取值：只认 "key": "value"，避免为一行字符串引入解析器 */
+    private static String firstJsonString(String s, String key) {
+        int i = s.indexOf("\"" + key + "\"");
+        if (i < 0) return null;
+        int q1 = s.indexOf('"', s.indexOf(':', i) + 1);
+        int q2 = q1 < 0 ? -1 : s.indexOf('"', q1 + 1);
+        if (q1 < 0 || q2 < 0) return null;
+        return s.substring(q1 + 1, q2).trim();
     }
 
     /* ============================================================ APK 升级 */

@@ -33,6 +33,7 @@ import java.util.ArrayList;
 public class MainActivity extends Activity {
 
     private static final int REQ_FILE = 1001;
+    private static final int REQ_ZIP = 1002;
     private static final String REMOTE_FALLBACK = "https://permit-guard.app.workbuddy.host/";
 
     private WebView web;
@@ -197,6 +198,26 @@ public class MainActivity extends Activity {
         });
     }
 
+    /**
+     * 打开系统文件选择器挑更新包。
+     *
+     * MIME 用通配而不是 application/zip：微信保存出来的 zip 常常被标成
+     * application/octet-stream，按 zip 过滤会让用户在列表里看不见自己的文件。
+     */
+    String pickWebZipFile() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            startActivityForResult(intent, REQ_ZIP);
+            return "{\"ok\":true}";
+        } catch (ActivityNotFoundException e) {
+            return "{\"ok\":false,\"message\":\"这个手机没有文件选择器\"}";
+        } catch (Exception e) {
+            return "{\"ok\":false,\"message\":\"打不开文件选择器\"}";
+        }
+    }
+
     /** 站内链接留在 WebView，站外链接交给系统浏览器 / 拨号 */
     private boolean handleUrl(Uri uri) {
         if (uri == null) return false;
@@ -225,6 +246,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int req, int result, Intent data) {
+        // 更新包选择：不管成功与否都交给 UpdateManager，取消时它会把状态置成 error
+        if (req == REQ_ZIP) {
+            Uri zip = (result == RESULT_OK && data != null) ? data.getData() : null;
+            if (updates != null) updates.installZipFromUri(zip);
+            return;
+        }
         if (req != REQ_FILE) {
             super.onActivityResult(req, result, data);
             return;
