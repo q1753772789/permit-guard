@@ -26,11 +26,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.dirname(HERE)
 BUILD = os.path.join(HERE, 'build')
 
-SDK = 'C:/Android/Sdk'
+# SDK 位置：Windows 本机固定 C:/Android/Sdk；Linux（CI/沙箱）用 /opt/asdk，
+# 都可用环境变量 ANDROID_SDK 覆盖。工具名在 Windows 带 .exe，其余不加。
+SDK = os.environ.get('ANDROID_SDK') or ('C:/Android/Sdk' if os.name == 'nt' else '/opt/asdk')
 BT = os.path.join(SDK, 'build-tools', '36.0.0')
 AJAR = os.path.join(SDK, 'platforms', 'android-34', 'android.jar')
-AAPT2 = os.path.join(BT, 'aapt2.exe')
-ZIPALIGN = os.path.join(BT, 'zipalign.exe')
+EXE = '.exe' if os.name == 'nt' else ''
+AAPT2 = os.path.join(BT, 'aapt2' + EXE)
+ZIPALIGN = os.path.join(BT, 'zipalign' + EXE)
 D8_JAR = os.path.join(BT, 'lib', 'd8.jar')
 SIGNER_JAR = os.path.join(BT, 'lib', 'apksigner.jar')
 
@@ -38,8 +41,8 @@ KEYSTORE = os.path.join(HERE, 'permit-guard.jks')
 KS_PASS = 'permitguard'
 KS_ALIAS = 'permitguard'
 
-VERSION_CODE = '34'
-VERSION_NAME = '4.3'
+VERSION_CODE = '35'
+VERSION_NAME = '4.4'
 MIN_SDK = '24'
 TARGET_SDK = '34'
 OUT_APK = os.path.join(BUILD, 'permit-guard-%s.apk' % VERSION_NAME)

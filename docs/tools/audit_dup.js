@@ -1,5 +1,5 @@
 const fs = require('fs'), vm = require('vm'), path = require('path');
-const ROOT = 'C:/Users/Admin/WorkBuddy/2026-11-07-20-42-53';
+const ROOT = path.resolve(__dirname, '..', '..');
 const src = fs.readFileSync(path.join(ROOT, 'assets/js/data.js'), 'utf8');
 const ctx = { console }; vm.createContext(ctx);
 vm.runInContext(src + '\n;globalThis.__X={APP_VERSION,PERMITS,GLOBAL_ERRORS,CROSS};', ctx);
