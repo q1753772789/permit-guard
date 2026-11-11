@@ -16,9 +16,9 @@ DOCS = os.path.join(ROOT, 'docs')
 
 NODE_DUMP = r"""
 const fs=require('fs'),vm=require('vm');
-const code=fs.readFileSync(process.argv[1],'utf8')+';({PERMITS,PERMIT_MAP,GLOBAL_ERRORS,APP_VERSION,RULE_VERSION})';
+const code=fs.readFileSync(process.argv[1],'utf8')+';({PERMITS,PERMIT_MAP,GLOBAL_ERRORS,APP_VERSION})';
 const d=vm.runInNewContext(code,{console});
-fs.writeFileSync(process.argv[2], JSON.stringify({v:d.RULE_VERSION||d.APP_VERSION,permits:d.PERMITS,globals:d.GLOBAL_ERRORS}));
+fs.writeFileSync(process.argv[2], JSON.stringify({v:d.APP_VERSION,permits:d.PERMITS,globals:d.GLOBAL_ERRORS}));
 """
 
 
